@@ -1,11 +1,12 @@
 import { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
-import { users, auditLogs, refreshTokens } from '@ecom-kit/shared-db';
+import { eq, and } from 'drizzle-orm';
+import { users, auditLogs, refreshTokens, memberships, organizations } from '@ecom-kit/shared-db';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { comparePassword, hashPassword, generateToken } from '@ecom-kit/shared-auth';
+import { comparePassword, hashPassword, generateToken, verifyToken } from '@ecom-kit/shared-auth';
 import { UserSession } from '@ecom-kit/shared-types';
 import { v4 as uuidv4 } from 'uuid';
+import { getEffectivePermissions } from '../rbac.js';
 
 const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
 const client = postgres(connectionString);
@@ -28,6 +29,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     const [newUser] = await db.insert(users).values({
       email,
       passwordHash,
+      status: 'active',
     }).returning();
 
     await db.insert(auditLogs).values({
@@ -40,7 +42,7 @@ export async function authRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post('/login', async (request, reply) => {
-    const { email, password } = request.body as any;
+    const { email, password, orgId } = request.body as any;
 
     if (!email || !password) {
       return reply.status(400).send({ error: 'Email and password are required' });
@@ -48,29 +50,61 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
-    if (!user || !(await comparePassword(password, user.passwordHash))) {
-      return reply.status(401).send({ error: 'Invalid credentials' });
+    if (!user || user.status !== 'active' || !(await comparePassword(password, user.passwordHash))) {
+      return reply.status(401).send({ error: 'Invalid credentials or inactive user' });
+    }
+
+    let sessionOrgId = orgId;
+    let rolesSet: string[] = [];
+    let permissionsSet: string[] = [];
+    let validUntil: string | undefined;
+
+    if (user.isSuperAdmin) {
+      sessionOrgId = orgId || '00000000-0000-0000-0000-000000000000'; // Platform org
+      rolesSet = ['super_admin'];
+      permissionsSet = ['*'];
+    } else {
+      const userMemberships = await db
+        .select()
+        .from(memberships)
+        .where(and(eq(memberships.userId, user.id), eq(memberships.status, 'active')));
+
+      if (userMemberships.length === 0) {
+        return reply.status(403).send({ error: 'No active organizations found for this user' });
+      }
+
+      if (!sessionOrgId) {
+        sessionOrgId = userMemberships[0].orgId;
+      }
+
+      const effective = await getEffectivePermissions(db, user.id, sessionOrgId);
+      if (effective.roles.length === 0) {
+        return reply.status(403).send({ error: 'Access denied for the selected organization' });
+      }
+
+      rolesSet = effective.roles;
+      permissionsSet = effective.permissions;
+      validUntil = effective.validUntil;
     }
 
     const accessTokenSession: UserSession = {
       userId: user.id,
-      orgId: '00000000-0000-0000-0000-000000000000', // Placeholder
-      roles: ['admin'], 
-      permissions: ['*'],
-      exp: Math.floor(Date.now() / 1000) + (15 * 60) // 15 minutes
+      orgId: sessionOrgId,
+      roles: rolesSet,
+      permissions: permissionsSet,
+      validUntil,
+      exp: Math.floor(Date.now() / 1000) + (15 * 60)
     };
 
     const accessToken = generateToken(accessTokenSession);
     const refreshToken = uuidv4();
 
-    // Store Refresh Token in DB
     await db.insert(refreshTokens).values({
       userId: user.id,
       token: refreshToken,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    // Store Session in Redis for fast validation/revocation
     await fastify.redis.set(
       `session:${user.id}`,
       JSON.stringify(accessTokenSession),
@@ -80,6 +114,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     await db.insert(auditLogs).values({
       userId: user.id,
+      orgId: sessionOrgId,
       action: 'user.login',
       payload: JSON.stringify({ email: user.email }),
     });
@@ -87,8 +122,67 @@ export async function authRoutes(fastify: FastifyInstance) {
     return { 
       accessToken, 
       refreshToken, 
-      user: { id: user.id, email: user.email } 
+      user: { id: user.id, email: user.email, isSuperAdmin: user.isSuperAdmin },
+      orgId: sessionOrgId
     };
+  });
+
+  fastify.post('/switch-org', async (request, reply) => {
+    const { orgId } = request.body as any;
+    const authHeader = request.headers.authorization;
+    
+    if (!authHeader || !orgId) {
+      return reply.status(400).send({ error: 'Authorization header and orgId are required' });
+    }
+
+    // This endpoint assumes the user is already authenticated
+    // We would normally use the existing session from the verified token
+    // For simplicity, let's assume request.user is populated by a middleware (which we haven't built yet)
+    // For now, let's just use the current session's userId if we can verify it
+    const token = authHeader.replace('Bearer ', '');
+    const currentSession = verifyToken(token);
+
+    const [user] = await db.select().from(users).where(eq(users.id, currentSession.userId)).limit(1);
+    if (!user || user.status !== 'active') {
+      return reply.status(401).send({ error: 'User not found or inactive' });
+    }
+
+    let rolesSet: string[] = [];
+    let permissionsSet: string[] = [];
+    let validUntil: string | undefined;
+
+    if (user.isSuperAdmin) {
+      rolesSet = ['super_admin'];
+      permissionsSet = ['*'];
+    } else {
+      const effective = await getEffectivePermissions(db, user.id, orgId);
+      if (effective.roles.length === 0) {
+        return reply.status(403).send({ error: 'Access denied for the selected organization' });
+      }
+      rolesSet = effective.roles;
+      permissionsSet = effective.permissions;
+      validUntil = effective.validUntil;
+    }
+
+    const newSession: UserSession = {
+      ...currentSession,
+      orgId,
+      roles: rolesSet,
+      permissions: permissionsSet,
+      validUntil,
+      exp: Math.floor(Date.now() / 1000) + (15 * 60)
+    };
+
+    const accessToken = generateToken(newSession);
+
+    await fastify.redis.set(
+      `session:${user.id}`,
+      JSON.stringify(newSession),
+      'EX',
+      7 * 24 * 60 * 60
+    );
+
+    return { accessToken, orgId };
   });
 
   fastify.post('/refresh', async (request, reply) => {
@@ -109,19 +203,40 @@ export async function authRoutes(fastify: FastifyInstance) {
     }
 
     const [user] = await db.select().from(users).where(eq(users.id, storedToken.userId)).limit(1);
+    
+    // Retrieve the last known session to maintain org context
+    const lastSessionStr = await fastify.redis.get(`session:${user.id}`);
+    const lastSession = lastSessionStr ? JSON.parse(lastSessionStr) : null;
+    const sessionOrgId = lastSession?.orgId || '00000000-0000-0000-0000-000000000000';
+
+    let rolesSet: string[] = [];
+    let permissionsSet: string[] = [];
+    let validUntil: string | undefined;
+
+    if (user.isSuperAdmin) {
+      rolesSet = ['super_admin'];
+      permissionsSet = ['*'];
+    } else {
+      const effective = await getEffectivePermissions(db, user.id, sessionOrgId);
+      if (effective.roles.length === 0) {
+        return reply.status(403).send({ error: 'Access denied for the current organization' });
+      }
+      rolesSet = effective.roles;
+      permissionsSet = effective.permissions;
+      validUntil = effective.validUntil;
+    }
 
     const accessTokenSession: UserSession = {
       userId: user.id,
-      orgId: '00000000-0000-0000-0000-000000000000',
-      roles: ['admin'],
-      permissions: ['*'],
+      orgId: sessionOrgId,
+      roles: rolesSet,
+      permissions: permissionsSet,
+      validUntil,
       exp: Math.floor(Date.now() / 1000) + (15 * 60)
     };
 
     const accessToken = generateToken(accessTokenSession);
     
-    // Optional: Rotate refresh token here. For now, keep it simple.
-
     return { accessToken };
   });
 

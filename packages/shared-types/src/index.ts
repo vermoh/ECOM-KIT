@@ -13,4 +13,5 @@ export interface UserSession {
   roles: string[];
   permissions: string[];
   exp: number;
+  validUntil?: string; // ISO date string
 }

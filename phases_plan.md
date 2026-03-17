@@ -44,14 +44,29 @@
 - **Definition of done**: Тесты авторизации пройдены, эндпоинты защищены.
 
 ### Phase 2: Organizations (Tenant Isolation & RBAC)
-- **Цель**: Multitenancy, роли, членство в организациях.
-- **User stories**: Как admin, я хочу приглашать пользователей и управлять их ролями.
-- **Backend tasks**: CRUD `Organization`, `Membership`, `Role`, `Permission`. Endpoint отправки invites. Middleware `Org Status` и `Temporal Access` (`valid_until`). Расчёт Effective Permissions. Запись в AuditLog всех изменений доступа.
-- **Frontend tasks**: Дашборд организации, экран участников. Форма приглашения. `PermissionGate` компонент.
-- **Database tasks**: Таблицы `Organization`, `Membership`, `Role`, `RolePermission`. Настройка жесткого RLS для всего слоя SP по `org_id`.
-- **Infra tasks**: Mock сервиса отправки email-инвайтов.
-- **Acceptance criteria**: JWT содержит только права текущей org. Истёкший `valid_until` даёт 403. Пользователи видят только свои Org.
-- **Definition of done**: Security matrix (RBAC) полностью соблюдена и покрыта API тестами.
+- **Цель**: Multitenancy, роли, членство в организациях и строгая изоляция данных.
+- **User stories**: Как admin, я хочу приглашать пользователей с определенными ролями и сроком действия доступа.
+- **Backend tasks**: 
+    - CRUD для `Organization`, `Membership`, `Role`, `Permission`, `RolePermission`. 
+    - Реализация 9 ролей (от `super_admin` до `read_only`) согласно [rbac_abac.md](file:///Users/vitalik/Antigravity/ECOM%20KIT/docs/06_security/rbac_abac.md).
+    - 5-уровневая стратегия защиты: JWT Verify -> Org Status -> Temporal Access -> Permission Guard -> Resource Ownership Guard.
+    - Логика Temporal Access (`valid_from`, `valid_until`) в Middleware.
+    - Жизненный цикл инвайтов (`invited -> active`) с генерацией magic-ссылок.
+    - Автоматический аудит изменений доступа и всех событий `access.denied` (HTTP 403).
+- **Frontend tasks**: 
+    - Дашборд организации, управление участниками (список, приглашение, роль, срок доступа). 
+    - Универсальный компонент `PermissionGate` (проверка по permissions из JWT).
+    - Обработка `ACCESS_EXPIRED` (logout) и `ORG_SUSPENDED` (экран блокировки).
+- **Database tasks**: 
+    - Создание таблиц управления доступом. 
+    - Внедрение Postgres RLS (через `SET app.current_org_id = ?`) для всех сущностей Service Plane.
+- **Infra tasks**: Mock-сервис для отправки email с инвайтами.
+- **Acceptance criteria**: 
+    - JWT содержит полный набор `permissions`. 
+    - Доступ блокируется при `valid_until < now()`. 
+    - Пользователь не видит и не может получить доступ к ресурсам другого `org_id` (гарантировано RLS).
+    - Все отказы в доступе фиксируются в `AuditLog`.
+- **Definition of done**: Матрица прав (RBAC) полностью имплементирована и подтверждена API тестами для каждой роли.
 
 ### Phase 3: Service Registry
 - **Цель**: Межсервисное взаимодействие и безопасное хранение ключей AI провайдеров.

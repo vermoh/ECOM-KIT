@@ -26,6 +26,8 @@ fastify.setErrorHandler(function (error, request, reply) {
   }
 });
 
+import { checkOrgStatus, checkTemporalAccess } from './guards.js';
+
 // Auth Guard Hook
 fastify.addHook('onRequest', async (request, reply) => {
   // Allow health checks and auth routes unconditionally
@@ -41,6 +43,14 @@ fastify.addHook('onRequest', async (request, reply) => {
     const token = authHeader.split(' ')[1];
     const session = verifyToken(token);
     request.userSession = session;
+
+    // Layer 2: Org Status
+    await checkOrgStatus(request, reply);
+    if (reply.sent) return;
+
+    // Layer 3: Temporal Access
+    await checkTemporalAccess(request, reply);
+    if (reply.sent) return;
   } catch (err: any) {
     reply.status(401).send({ error: 'Unauthorized: Invalid token', details: err.message });
     return reply;
@@ -54,8 +64,13 @@ fastify.register(fastifyRedis, {
   password: process.env.REDIS_PASSWORD,
 });
 
+import { organizationRoutes } from './routes/organizations.js';
+import { membershipRoutes } from './routes/memberships.js';
+
 // Routes
 fastify.register(authRoutes, { prefix: '/api/v1/auth' });
+fastify.register(organizationRoutes, { prefix: '/api/v1/organizations' });
+fastify.register(membershipRoutes, { prefix: '/api/v1/memberships' });
 
 fastify.get('/health', async (request, reply) => {
   return { status: 'ok', service: 'control-plane-api' };
