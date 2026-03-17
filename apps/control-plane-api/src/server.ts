@@ -1,13 +1,15 @@
 import Fastify from 'fastify';
+import { verifyToken } from '@ecom-kit/shared-auth';
+import { UserSession } from '@ecom-kit/shared-types';
+import { authRoutes } from './routes/auth.js';
 
 const fastify = Fastify({
   logger: true
 });
 
-// Mock Session for demonstration of deny-by-default architecture
 declare module 'fastify' {
   interface FastifyRequest {
-    userSession?: any; // Replace with UserSession from shared-types later
+    userSession?: UserSession;
   }
 }
 
@@ -15,7 +17,7 @@ declare module 'fastify' {
 fastify.setErrorHandler(function (error, request, reply) {
   this.log.error(error);
   if (error.statusCode === 401) {
-    reply.status(401).send({ error: 'Unauthorized' });
+    reply.status(401).send({ error: 'Unauthorized', message: error.message });
   } else if (error.statusCode === 403) {
     reply.status(403).send({ error: 'Forbidden' });
   } else {
@@ -23,29 +25,41 @@ fastify.setErrorHandler(function (error, request, reply) {
   }
 });
 
-// Deny-by-default Hook
+// Auth Guard Hook
 fastify.addHook('onRequest', async (request, reply) => {
-  // Allow health checks unconditionally
-  if (request.url === '/health') return;
+  // Allow health checks and auth routes unconditionally
+  if (request.url === '/health' || request.url.startsWith('/api/v1/auth')) return;
 
-  // Enforce session presence for all other routes
-  if (!request.userSession) {
-    reply.status(401).send({ error: 'Unauthorized: Session required' });
+  const authHeader = request.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    reply.status(401).send({ error: 'Unauthorized: No token provided' });
+    return reply;
+  }
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const session = verifyToken(token);
+    request.userSession = session;
+  } catch (err: any) {
+    reply.status(401).send({ error: 'Unauthorized: Invalid token', details: err.message });
     return reply;
   }
 });
+
+// Routes
+fastify.register(authRoutes, { prefix: '/api/v1/auth' });
 
 fastify.get('/health', async (request, reply) => {
   return { status: 'ok', service: 'control-plane-api' };
 });
 
 fastify.get('/api/v1/protected', async (request, reply) => {
-  return { data: 'This is protected data' };
+  return { data: 'This is protected data', session: request.userSession };
 });
 
 const start = async () => {
   try {
-    await fastify.listen({ port: 3000, host: '0.0.0.0' });
+    await fastify.listen({ port: 8080, host: '0.0.0.0' });
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

@@ -10,7 +10,10 @@
   "dependencies": {
     "fastify": "^4.26.2",
     "@ecom-kit/shared-types": "workspace:*",
-    "@ecom-kit/shared-db": "workspace:*"
+    "@ecom-kit/shared-db": "workspace:*",
+    "@ecom-kit/shared-auth": "workspace:*",
+    "drizzle-orm": "^0.30.0",
+    "postgres": "^3.4.4"
   },
   "devDependencies": {
     "tsx": "^4.7.1",
