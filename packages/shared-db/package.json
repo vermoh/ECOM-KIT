@@ -1,0 +1,21 @@
+{
+  "name": "@ecom-kit/shared-db",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "generate": "drizzle-kit generate:pg",
+    "push": "drizzle-kit push:pg",
+    "migrate": "tsx src/migrate.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.30.0",
+    "postgres": "^3.4.4"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.20.14",
+    "tsx": "^4.7.1",
+    "typescript": "^5.4.0"
+  }
+}

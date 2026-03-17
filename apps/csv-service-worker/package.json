@@ -1,0 +1,19 @@
+{
+  "name": "@ecom-kit/csv-service-worker",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/worker.ts",
+  "scripts": {
+    "dev": "tsx watch src/worker.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "fastify": "^4.26.2",
+    "@ecom-kit/shared-types": "workspace:*",
+    "@ecom-kit/shared-db": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.1",
+    "typescript": "^5.4.0"
+  }
+}

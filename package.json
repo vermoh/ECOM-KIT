@@ -1,0 +1,15 @@
+{
+  "name": "ecom-kit",
+  "version": "1.0.0",
+  "description": "E-Com Kit Platform",
+  "private": true,
+  "scripts": {
+    "dev": "bash ./infra/scripts/dev.sh",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}
