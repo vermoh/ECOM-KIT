@@ -114,10 +114,11 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     await db.insert(auditLogs).values({
       userId: user.id,
-      orgId: sessionOrgId,
+      orgId: sessionOrgId === '00000000-0000-0000-0000-000000000000' ? null : sessionOrgId,
       action: 'user.login',
       payload: JSON.stringify({ email: user.email }),
     });
+
 
     return { 
       accessToken, 

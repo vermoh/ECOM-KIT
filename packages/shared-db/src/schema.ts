@@ -136,3 +136,17 @@ export const refreshTokens = pgTable('refresh_tokens', {
   revokedAt: timestamp('revoked_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const providerEnum = pgEnum('provider_type', ['openrouter', 'stripe', 'webhook']);
+
+export const providerConfigs = pgTable('provider_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id),
+  provider: providerEnum('provider').notNull(),
+  encryptedValue: text('encrypted_value').notNull(), // stored as base64 (iv:authTag:ciphertext)
+  keyHint: text('key_hint').notNull(),
+  rotatedAt: timestamp('rotated_at'),
+  createdBy: uuid('created_by').notNull().references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+

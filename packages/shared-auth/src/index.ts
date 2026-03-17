@@ -1,5 +1,7 @@
 export * from './jwt.js';
 export * from './password.js';
+export * from './crypto.js';
+
 
 import { UserSession } from '@ecom-kit/shared-types';
 

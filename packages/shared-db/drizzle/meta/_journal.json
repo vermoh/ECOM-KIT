@@ -15,6 +15,13 @@
       "when": 1773756553139,
       "tag": "0001_flowery_trauma",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1773764585376,
+      "tag": "0002_thick_nightshade",
+      "breakpoints": true
     }
   ]
 }

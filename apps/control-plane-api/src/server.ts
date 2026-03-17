@@ -31,7 +31,8 @@ import { checkOrgStatus, checkTemporalAccess } from './guards.js';
 // Auth Guard Hook
 fastify.addHook('onRequest', async (request, reply) => {
   // Allow health checks and auth routes unconditionally
-  if (request.url === '/health' || request.url.startsWith('/api/v1/auth')) return;
+  if (request.url === '/health' || request.url.startsWith('/api/v1/auth') || request.url === '/api/v1/grants/verify') return;
+
 
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -66,11 +67,18 @@ fastify.register(fastifyRedis, {
 
 import { organizationRoutes } from './routes/organizations.js';
 import { membershipRoutes } from './routes/memberships.js';
+import { providerRoutes } from './routes/providers.js';
+import { serviceRoutes } from './routes/services.js';
+import { grantRoutes } from './routes/grants.js';
 
 // Routes
 fastify.register(authRoutes, { prefix: '/api/v1/auth' });
 fastify.register(organizationRoutes, { prefix: '/api/v1/organizations' });
 fastify.register(membershipRoutes, { prefix: '/api/v1/memberships' });
+fastify.register(providerRoutes, { prefix: '/api/v1/providers' });
+fastify.register(serviceRoutes, { prefix: '/api/v1/services' });
+fastify.register(grantRoutes, { prefix: '/api/v1/grants' });
+
 
 fastify.get('/health', async (request, reply) => {
   return { status: 'ok', service: 'control-plane-api' };
@@ -82,7 +90,8 @@ fastify.get('/api/v1/protected', async (request, reply) => {
 
 const start = async () => {
   try {
-    await fastify.listen({ port: 8080, host: '0.0.0.0' });
+    await fastify.listen({ port: parseInt(process.env.PORT || '8080'), host: '0.0.0.0' });
+
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
