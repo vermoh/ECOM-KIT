@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { verifyToken } from '@ecom-kit/shared-auth';
 import { UserSession } from '@ecom-kit/shared-types';
+import fastifyRedis from '@fastify/redis';
 import { authRoutes } from './routes/auth.js';
 
 const fastify = Fastify({
@@ -44,6 +45,13 @@ fastify.addHook('onRequest', async (request, reply) => {
     reply.status(401).send({ error: 'Unauthorized: Invalid token', details: err.message });
     return reply;
   }
+});
+
+// Redis Registration
+fastify.register(fastifyRedis, {
+  host: process.env.REDIS_HOST || '127.0.0.1',
+  port: parseInt(process.env.REDIS_PORT || '6379'),
+  password: process.env.REDIS_PASSWORD,
 });
 
 // Routes
