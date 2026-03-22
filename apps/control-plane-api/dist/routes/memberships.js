@@ -35,22 +35,19 @@ async function membershipRoutes(fastify) {
     }, async (request, reply) => {
         const { email, roleName, validUntil } = request.body;
         const session = request.userSession;
-        // 1. Find or create user (placeholder for actual invite flow)
         let [user] = await db.select().from(shared_db_1.users).where((0, drizzle_orm_1.eq)(shared_db_1.users.email, email)).limit(1);
         if (!user) {
             [user] = await db.insert(shared_db_1.users).values({
                 email,
-                passwordHash: 'INVITED_USER_PLACEHOLDER', // In real app, person sets password after clicking link
+                passwordHash: 'INVITED_USER_PLACEHOLDER',
                 status: 'pending'
             }).returning();
         }
-        // 2. Find role
         const [role] = await db.select().from(shared_db_1.roles)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(shared_db_1.roles.name, roleName), (0, drizzle_orm_1.isNull)(shared_db_1.roles.orgId))) // system roles
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(shared_db_1.roles.name, roleName), (0, drizzle_orm_1.isNull)(shared_db_1.roles.orgId)))
             .limit(1);
         if (!role)
             return reply.status(400).send({ error: 'Role not found' });
-        // 3. Create membership
         const [membership] = await db.insert(shared_db_1.memberships).values({
             orgId: session.orgId,
             userId: user.id,

@@ -47,15 +47,12 @@ const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_
 const client = (0, postgres_1.default)(connectionString);
 const db = (0, postgres_js_1.drizzle)(client, { schema });
 async function billingRoutes(fastify) {
-    // Check token budget BEFORE starting AI task
-    // Internal endpoint called by Service Plane
     fastify.post('/budget/check', async (request, reply) => {
         const { orgId, requiredTokens } = request.body;
         const budget = await db.query.tokenBudgets.findFirst({
             where: (0, drizzle_orm_1.eq)(shared_db_1.tokenBudgets.orgId, orgId)
         });
         if (!budget) {
-            // Create default free budget if missing
             const [newBudget] = await db.insert(shared_db_1.tokenBudgets).values({
                 orgId,
                 totalTokens: 100000,
@@ -71,19 +68,15 @@ async function billingRoutes(fastify) {
             remainingTokens: budget.remainingTokens
         };
     });
-    // Record token consumption AFTER AI task completes
-    // Internal endpoint called by Service Plane
     fastify.post('/budget/consume', async (request, reply) => {
         const { orgId, serviceId, jobId, tokensUsed, model, purpose } = request.body;
         await db.transaction(async (tx) => {
-            // 1. Deduct from budget
             await tx.update(shared_db_1.tokenBudgets)
                 .set({
                 remainingTokens: (0, drizzle_orm_1.sql) `${shared_db_1.tokenBudgets.remainingTokens} - ${tokensUsed}`,
                 updatedAt: new Date()
             })
                 .where((0, drizzle_orm_1.eq)(shared_db_1.tokenBudgets.orgId, orgId));
-            // 2. Log usage
             await tx.insert(shared_db_1.tokenUsageLogs).values({
                 orgId,
                 serviceId: serviceId || null,
@@ -92,7 +85,6 @@ async function billingRoutes(fastify) {
                 model,
                 purpose,
             });
-            // 3. Audit log if significant
             if (tokensUsed > 1000) {
                 await tx.insert(shared_db_1.auditLogs).values({
                     orgId,
@@ -103,7 +95,6 @@ async function billingRoutes(fastify) {
         });
         return { success: true };
     });
-    // Get current usage metrics for dashboard
     fastify.get('/usage', {
         preHandler: [(0, guards_js_1.requirePermission)('organization:read')]
     }, async (request, reply) => {
@@ -129,7 +120,6 @@ async function billingRoutes(fastify) {
             recentLogs
         };
     });
-    // Stripe Webhook Endpoint (MOCKED for design)
     fastify.post('/webhook', async (request, reply) => {
         const payload = request.body;
         const type = payload.type;
@@ -148,7 +138,6 @@ async function billingRoutes(fastify) {
                         updatedAt: new Date()
                     })
                         .where((0, drizzle_orm_1.eq)(shared_db_1.organizations.id, orgId));
-                    // Top up tokens for the new plan
                     const tokenAmount = plan === 'pro' ? 1000000 : (plan === 'enterprise' ? 10000000 : 500000);
                     await db.update(shared_db_1.tokenBudgets)
                         .set({

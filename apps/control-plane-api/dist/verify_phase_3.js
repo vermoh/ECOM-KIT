@@ -7,7 +7,6 @@ const axios_1 = __importDefault(require("axios"));
 const BASE_URL = 'http://localhost:8081/api/v1';
 async function verify() {
     console.log('--- Phase 3: Service Registry & Access Grants Verification ---');
-    // 1. Login as admin
     console.log('1. Logging in as admin...');
     const loginRes = await axios_1.default.post(`${BASE_URL}/auth/login`, {
         email: 'admin@ecomkit.com',
@@ -16,7 +15,6 @@ async function verify() {
     const { accessToken } = loginRes.data;
     const initialHeaders = { Authorization: `Bearer ${accessToken}` };
     console.log('Login Success.');
-    // 2. Get organization ID
     console.log('2. Fetching organizations...');
     const orgsRes = await axios_1.default.get(`${BASE_URL}/organizations`, { headers: initialHeaders });
     let orgId;
@@ -32,12 +30,10 @@ async function verify() {
         orgId = newOrgRes.data.id;
     }
     console.log('Using OrgId:', orgId);
-    // 3. Switch to the organization context
     console.log('3. Switching to organization context...');
     const switchRes = await axios_1.default.post(`${BASE_URL}/auth/switch-org`, { orgId }, { headers: initialHeaders });
     const activeHeaders = { Authorization: `Bearer ${switchRes.data.accessToken}` };
     console.log('Context switched.');
-    // 4. Register a service
     const serviceSlug = `test-service-${Date.now()}`;
     console.log(`4. Registering service: ${serviceSlug}...`);
     const serviceRes = await axios_1.default.post(`${BASE_URL}/services`, {
@@ -48,21 +44,18 @@ async function verify() {
     }, { headers: activeHeaders });
     const serviceId = serviceRes.data.id;
     console.log('Service Registered:', serviceId);
-    // 5. Grant access to service
     console.log('5. Granting access to service...');
     await axios_1.default.post(`${BASE_URL}/services/grant`, {
         orgId,
         serviceId
     }, { headers: activeHeaders });
     console.log('Access Granted.');
-    // 6. Create ProviderConfig
     console.log('6. Creating ProviderConfig...');
     const providerRes = await axios_1.default.post(`${BASE_URL}/providers`, {
         provider: 'openrouter',
         value: 'sk-test-token-val-123456789'
     }, { headers: activeHeaders });
     console.log('ProviderConfig created:', providerRes.data.id, 'Hint:', providerRes.data.keyHint);
-    // 7. Issue AccessGrant
     console.log('7. Issuing AccessGrant...');
     const grantRes = await axios_1.default.post(`${BASE_URL}/grants/issue`, {
         serviceSlug,
@@ -70,7 +63,6 @@ async function verify() {
     }, { headers: activeHeaders });
     const { token, grantId } = grantRes.data;
     console.log('AccessGrant issued:', grantId);
-    // 8. Verify AccessGrant (Public verify endpoint)
     console.log('8. Verifying AccessGrant...');
     const verifyRes = await axios_1.default.post(`${BASE_URL}/grants/verify`, { token });
     console.log('Verification Result:', verifyRes.data);

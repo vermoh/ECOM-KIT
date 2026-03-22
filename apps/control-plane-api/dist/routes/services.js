@@ -13,13 +13,11 @@ const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_
 const client = (0, postgres_1.default)(connectionString);
 const db = (0, postgres_js_1.drizzle)(client);
 async function serviceRoutes(fastify) {
-    // List all services
     fastify.get('/', {
         preHandler: [(0, guards_js_1.requirePermission)('service:read')]
     }, async (request, reply) => {
         return await db.select().from(shared_db_1.services);
     });
-    // Register a new service (super_admin only implied by permission)
     fastify.post('/', {
         preHandler: [(0, guards_js_1.requirePermission)('service:register')]
     }, async (request, reply) => {
@@ -40,7 +38,6 @@ async function serviceRoutes(fastify) {
         });
         return newService;
     });
-    // Grant access to a service for an organization
     fastify.post('/grant', {
         preHandler: [(0, guards_js_1.requirePermission)('service:grant_access')]
     }, async (request, reply) => {
@@ -63,7 +60,6 @@ async function serviceRoutes(fastify) {
         });
         return grant;
     });
-    // Revoke access
     fastify.post('/revoke/:id', {
         preHandler: [(0, guards_js_1.requirePermission)('service:revoke_access')]
     }, async (request, reply) => {
@@ -85,7 +81,6 @@ async function serviceRoutes(fastify) {
         });
         return revoked;
     });
-    // Get service access for current org
     fastify.get('/my-access', {
         preHandler: [(0, guards_js_1.requirePermission)('service:read')]
     }, async (request, reply) => {

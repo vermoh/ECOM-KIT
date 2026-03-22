@@ -13,11 +13,9 @@ const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_
 const client = (0, postgres_1.default)(connectionString);
 const db = (0, postgres_js_1.drizzle)(client);
 async function organizationRoutes(fastify) {
-    // Layer 4 & 5: Permissions & Tenant Isolation
     fastify.get('/', {
         preHandler: [(0, guards_js_1.requirePermission)('organization:read')]
     }, async (request, reply) => {
-        // If super_admin, can read all, else only own (though RLS would handle this too)
         const session = request.userSession;
         if (session.roles.includes('super_admin')) {
             const allOrgs = await db.select().from(shared_db_1.organizations);
@@ -50,7 +48,6 @@ async function organizationRoutes(fastify) {
         const { id } = request.params;
         const updates = request.body;
         const session = request.userSession;
-        // Security: Only super_admin or owner of THIS org can update
         if (!session.roles.includes('super_admin') && session.orgId !== id) {
             return reply.status(403).send({ error: 'PERMISSION_DENIED' });
         }

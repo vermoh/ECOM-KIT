@@ -2,64 +2,55 @@
 
 ## Goals
 - видеть состояние системы и jobs;
-- быстро находить причину ошибок;
+- быстро находить причину ошибок (MTTR < 15 min);
 - отслеживать деградацию качества AI processing;
-- контролировать стоимость AI usage.
+- контролировать стоимость AI usage по каждому тенанту.
 
 ## Logging
-Все сервисы должны писать structured logs со следующими полями:
-- timestamp
-- level
-- service_name
-- environment
-- correlation_id
-- request_id if applicable
-- user_id if available
-- organization_id if available
-- action
-- target_type
-- target_id
-- message
-- metadata
+Все сервисы используют **Pino** для генерации structured logs в JSON формате.
+### Обязательные поля:
+- `timestamp`: ISO-8601;
+- `level`: info, warn, error, fatal;
+- `service_name`: e.g., `csv-service-worker`;
+- `correlation_id`: сквозной ID для трассировки запроса;
+- `organization_id`: UUID организации;
+- `user_id`: UUID инициатора (если применимо);
+- `action`: e.g., `enrichment.started`, `access_denied`;
+- `metadata`: объект со специфичными данными (e.g., `job_id`, `tokens_used`).
 
-## Metrics
-Минимальный набор:
-- requests_total
-- request_duration
-- auth_failures_total
-- active_jobs
-- failed_jobs_total
-- retry_count
-- collision_rate
-- enrichment_success_rate
-- export_duration
-- ai_provider_latency
-- ai_provider_errors_total
-- ai_token_usage if available
-- ai_cost_estimate if available
+## Metrics (Prometheus / Grafana)
+### Infrastructure Metrics:
+- `requests_total`: общее кол-во запросов (по кодам ответа);
+- `request_duration_seconds`: гистограмма задержек;
+- `active_connections`: кол-во активных соединений к БД/Redis.
+
+### Job/Pipeline Metrics:
+- `csv_worker_jobs_processed_total`: по типу и статусу;
+- `csv_worker_items_enriched_total`: кол-во успешно обработанных SKU;
+- `csv_worker_collision_rate`: % коллизий от общего объема;
+- `bull_job_wait_time`: время нахождения задачи в очереди.
+
+### AI Cost Metrics:
+- `csv_worker_tokens_consumed_total`: (labels: `org_id`, `model`, `purpose`);
+- `ai_provider_errors_total`: (labels: `provider`, `error_code`).
 
 ## Tracing
-- correlation_id обязателен между Control Plane, CSV Service API и Worker;
-- long-running job должен иметь job_id как traceable entity;
-- integration calls to AI provider должны быть трассируемы.
+- **X-Correlation-ID**: обязательный хедер для всех межсервисных вызовов;
+- **BullMQ Job Data**: `correlationId` передается в данных задачи для связки API -> Worker.
 
-## Alerts
-Нужны оповещения при:
-- росте failed_jobs;
-- недоступности AI provider;
-- массовых authorization errors;
-- росте collision rate выше baseline;
-- проблемах object storage;
-- queue backlog выше порога.
+## Job Monitoring & DLQ
+- **Dashboard**: Для оперативного мониторинга очередей используется **BullBoard** (доступ только `super_admin`).
+- **DLQ Strategy**: 
+  - Ремонтопригодные ошибки: 3 попытки, экспоненциальный backoff.
+  - Критичные ошибки: перевод в статус `FAILED`, логирование `correlation_id` для расследования.
 
 ## Dashboards
-Минимум:
-1. Platform Health
-2. CSV Pipeline Health
-3. AI Usage and Cost
-4. Access / Security anomalies
+1. **System Health**: CPU, Ram, DB connections, Redis throughput.
+2. **Business Pipeline**: Скорость обработки CSV, ошибки обогащения, коллизии.
+3. **AI Provider Dashboard**: Usage, Quotas, Latency per provider.
+4. **Security Audit**: `access.denied` events, token refresh failures.
 
 ## Retention
-- application logs: по policy окружения;
-- audit logs: минимум 90 дней или по бизнес-политике;
-- job execution history: минимум достаточно для расследования инцидентов и поддержки пользователей.
+- **Application Logs**: 30 дней (Hot storage).
+- **Audit Logs**: 90 дней (Compliance).
+- **Usage Metrics**: 1 год (для биллинга).

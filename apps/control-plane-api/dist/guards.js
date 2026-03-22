@@ -9,9 +9,6 @@ async function checkOrgStatus(request, reply) {
     const session = request.userSession;
     if (!session)
         return;
-    // In a real app, we would fetch org status from Redis/DB here
-    // For now, we assume it's checked during token generation/refresh, 
-    // but we could add a cached check here for immediate suspension.
 }
 async function checkTemporalAccess(request, reply) {
     const session = request.userSession;

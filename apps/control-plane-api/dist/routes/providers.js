@@ -13,14 +13,12 @@ const shared_auth_1 = require("@ecom-kit/shared-auth");
 const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
 const client = (0, postgres_1.default)(connectionString);
 const db = (0, postgres_js_1.drizzle)(client);
-// Master key for encryption (should be in env in production)
 const MASTER_KEY = process.env.ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 async function providerRoutes(fastify) {
     fastify.get('/', {
         preHandler: [(0, guards_js_1.requirePermission)('secret:read_hint')]
     }, async (request, reply) => {
         const session = request.userSession;
-        // RLS handles org isolation, but we explicitly filter by orgId for safety
         const configs = await db.select({
             id: shared_db_1.providerConfigs.id,
             orgId: shared_db_1.providerConfigs.orgId,
@@ -120,7 +118,6 @@ async function providerRoutes(fastify) {
         });
         return reply.status(204).send();
     });
-    // FOR SERVICES: Get decrypted key
     fastify.get('/key/:provider', {
         preHandler: [(0, guards_js_1.requirePermission)('secret:read')]
     }, async (request, reply) => {

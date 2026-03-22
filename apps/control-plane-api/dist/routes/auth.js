@@ -51,7 +51,7 @@ async function authRoutes(fastify) {
         let permissionsSet = [];
         let validUntil;
         if (user.isSuperAdmin) {
-            sessionOrgId = orgId || '00000000-0000-0000-0000-000000000000'; // Platform org
+            sessionOrgId = orgId || '00000000-0000-0000-0000-000000000000';
             rolesSet = ['super_admin'];
             permissionsSet = ['*'];
         }
@@ -109,10 +109,6 @@ async function authRoutes(fastify) {
         if (!authHeader || !orgId) {
             return reply.status(400).send({ error: 'Authorization header and orgId are required' });
         }
-        // This endpoint assumes the user is already authenticated
-        // We would normally use the existing session from the verified token
-        // For simplicity, let's assume request.user is populated by a middleware (which we haven't built yet)
-        // For now, let's just use the current session's userId if we can verify it
         const token = authHeader.replace('Bearer ', '');
         const currentSession = (0, shared_auth_1.verifyToken)(token);
         const [user] = await db.select().from(shared_db_1.users).where((0, drizzle_orm_1.eq)(shared_db_1.users.id, currentSession.userId)).limit(1);
@@ -161,7 +157,6 @@ async function authRoutes(fastify) {
             return reply.status(401).send({ error: 'Invalid or expired refresh token' });
         }
         const [user] = await db.select().from(shared_db_1.users).where((0, drizzle_orm_1.eq)(shared_db_1.users.id, storedToken.userId)).limit(1);
-        // Retrieve the last known session to maintain org context
         const lastSessionStr = await fastify.redis.get(`session:${user.id}`);
         const lastSession = lastSessionStr ? JSON.parse(lastSessionStr) : null;
         const sessionOrgId = lastSession?.orgId || '00000000-0000-0000-0000-000000000000';
