@@ -1,7 +1,12 @@
 import { FastifyInstance } from 'fastify';
-import { db, uploadJobs, schemaTemplates, enrichmentRuns, eq, and, withTenant } from '@ecom-kit/shared-db';
+import { db, uploadJobs, schemaTemplates, enrichmentRuns, seoTasks, withTenant, eq, and } from '@ecom-kit/shared-db';
 import { hasPermission } from '@ecom-kit/shared-auth';
 import { enrichmentQueue } from '../lib/queue';
+import IORedis from 'ioredis';
+import { Queue } from 'bullmq';
+
+const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:8080';
+const SERVICE_TOKEN = process.env.CSV_SERVICE_TOKEN || 'csv-service-shared-secret';
 
 export async function enrichmentRoutes(fastify: FastifyInstance) {
   
@@ -49,12 +54,36 @@ export async function enrichmentRoutes(fastify: FastifyInstance) {
       }).returning();
     });
 
+    // 2.5 Issue AccessGrant for the worker
+    let accessGrantToken: string | undefined;
+    try {
+      const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SERVICE_TOKEN}`
+        },
+        body: JSON.stringify({
+          serviceSlug: 'csv-service-worker',
+          scopes: ['secret:read', 'enrichment:write']
+        })
+      });
+      if (grantRes.ok) {
+        const grantData = await grantRes.json() as any;
+        accessGrantToken = grantData.token;
+      }
+    } catch (err) {
+      console.error('[Enrichment] Failed to issue AccessGrant:', err);
+      // Fallback: proceed without grant (worker will use mock/env key)
+    }
+
     // 3. Queue the job
     await enrichmentQueue.add('enrichment', {
       enrichmentRunId: run.id,
       uploadJobId: job.id,
       orgId: session.orgId,
-      s3Key: job.s3Key
+      s3Key: job.s3Key,
+      accessGrantToken,
     });
 
     // 4. Update UploadJob status
@@ -84,5 +113,115 @@ export async function enrichmentRoutes(fastify: FastifyInstance) {
     }
 
     return run;
+  });
+
+  // Get SEO task status
+  fastify.get('/uploads/:id/seo', async (request, reply) => {
+    const session = request.userSession!;
+    const { id } = request.params as { id: string };
+
+    const task = await db.query.seoTasks.findFirst({
+      where: and(eq(seoTasks.uploadId, id), eq(seoTasks.orgId, session.orgId)),
+      orderBy: (tasks, { desc }) => [desc(tasks.createdAt)]
+    });
+
+    if (!task) {
+      return reply.status(404).send({ error: 'SEO task not found for this upload' });
+    }
+
+    return task;
+  });
+
+  /**
+   * Gap 5 fix: Manual SEO generation trigger.
+   * Per BR-SV-06, SEO is only allowed after EnrichmentRun.status = 'completed'.
+   * ADR-004: Long-running tasks must go through queue.
+   */
+  fastify.post('/uploads/:id/seo/start', async (request, reply) => {
+    const session = request.userSession!;
+    const { id } = request.params as { id: string };
+    const { lang = 'ru' } = (request.body as { lang?: string }) || {};
+
+    if (!hasPermission(session, 'enrichment:start')) {
+      return reply.status(403).send({ error: 'Forbidden: enrichment:start required' });
+    }
+
+    // 1. Verify upload job exists and belongs to this tenant
+    const job = await db.query.uploadJobs.findFirst({
+      where: and(eq(uploadJobs.id, id), eq(uploadJobs.orgId, session.orgId))
+    });
+
+    if (!job) {
+      return reply.status(404).send({ error: 'Upload job not found' });
+    }
+
+    // 2. Find the latest completed enrichment run (BR-SV-06)
+    const run = await db.query.enrichmentRuns.findFirst({
+      where: and(
+        eq(enrichmentRuns.jobId, id),
+        eq(enrichmentRuns.orgId, session.orgId),
+        eq(enrichmentRuns.status, 'completed')
+      ),
+      orderBy: (runs, { desc }) => [desc(runs.createdAt)],
+    });
+
+    if (!run) {
+      return reply.status(400).send({
+        error: 'No completed enrichment run found. SEO generation requires a completed enrichment run.'
+      });
+    }
+
+    // 3. Create SEO task
+    const [seoTask] = await withTenant(session.orgId, async (tx) => {
+      return tx.insert(seoTasks).values({
+        orgId: session.orgId,
+        uploadId: id,
+        runId: run.id,
+        status: 'queued',
+        lang,
+        totalItems: run.processedItems,
+      }).returning();
+    });
+
+    // 4. Issue AccessGrant for the worker (ADR-003)
+    let accessGrantToken: string | undefined;
+    try {
+      const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SERVICE_TOKEN}`
+        },
+        body: JSON.stringify({
+          serviceSlug: 'csv-service-worker',
+          scopes: ['secret:read', 'seo:write']
+        })
+      });
+      if (grantRes.ok) {
+        const grantData = await grantRes.json() as any;
+        accessGrantToken = grantData.token;
+      }
+    } catch (err) {
+      console.error('[SEO] Failed to issue AccessGrant:', err);
+    }
+
+    // 5. Enqueue SEO job (ADR-004: long-running tasks via queue)
+    const redisConn = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+      maxRetriesPerRequest: null,
+    });
+    const seoQueue = new Queue('seo-generation', { connection: redisConn as any });
+    await seoQueue.add('seo-generation', {
+      seoTaskId: seoTask.id,
+      uploadJobId: id,
+      enrichmentRunId: run.id,
+      orgId: session.orgId,
+      lang,
+      accessGrantToken,
+    });
+
+    return {
+      success: true,
+      seoTaskId: seoTask.id,
+    };
   });
 }

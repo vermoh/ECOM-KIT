@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { db, uploadJobs, enrichedItems, collisions, auditLogs, eq, and, withTenant, count } from '@ecom-kit/shared-db';
+import { db, uploadJobs, enrichedItems, collisions, reviewTasks, auditLogs, eq, and, or, withTenant, count } from '@ecom-kit/shared-db';
 import { hasPermission } from '@ecom-kit/shared-auth';
 
 export async function collisionsRoutes(fastify: FastifyInstance) {
@@ -81,18 +81,35 @@ export async function collisionsRoutes(fastify: FastifyInstance) {
         payload: JSON.stringify({ field: collision.field, resolvedValue }),
       });
 
-      // 4. Check if all collisions for this job are resolved
+      // 4. Check if all collisions for this job are resolved/dismissed
+      // Per state_machines.md: count both 'detected' and 'pending_review' as open
       const [remaining] = await tx.select({ value: count() })
         .from(collisions)
         .where(and(
-          eq(collisions.jobId, collision.jobId), 
-          eq(collisions.status, 'detected')
+          eq(collisions.jobId, collision.jobId),
+          eq(collisions.orgId, session.orgId),
+          or(
+            eq(collisions.status, 'detected'),
+            eq(collisions.status, 'pending_review')
+          )
         ));
 
       if (remaining.value === 0) {
+        // Complete collision review task
+        await tx.update(reviewTasks)
+          .set({ status: 'completed', completedBy: session.userId, completedAt: new Date() })
+          .where(and(
+            eq(reviewTasks.jobId, collision.jobId),
+            eq(reviewTasks.taskType, 'collision_review'),
+            eq(reviewTasks.status, 'pending')
+          ));
+
         await tx.update(uploadJobs)
           .set({ status: 'ready', updatedAt: new Date() })
-          .where(eq(uploadJobs.id, collision.jobId));
+          .where(and(
+            eq(uploadJobs.id, collision.jobId),
+            eq(uploadJobs.orgId, session.orgId)
+          ));
       }
     });
 
@@ -117,36 +134,58 @@ export async function collisionsRoutes(fastify: FastifyInstance) {
     }
 
     await withTenant(session.orgId, async (tx) => {
+      // Canonical model: dismiss → 'ignored' (not 'dismissed')
       await tx.update(collisions)
         .set({ 
-          status: 'dismissed',
+          status: 'ignored',
           resolvedBy: session.userId,
           resolvedAt: new Date()
         })
-        .where(eq(collisions.id, id));
+        .where(and(
+          eq(collisions.id, id),
+          eq(collisions.orgId, session.orgId)
+        ));
 
       // Audit Log
       await tx.insert(auditLogs).values({
         orgId: session.orgId,
         userId: session.userId,
-        action: 'collision_dismissed',
+        actorType: 'user',
+        action: 'collision.dismissed',
         resourceType: 'collision',
         resourceId: collision.id,
         payload: JSON.stringify({ field: collision.field }),
       });
 
-      // Check if all collisions for this job are resolved/dismissed
+      // Check if all open collisions for this job are resolved/ignored
+      // Per state_machines.md: count 'detected' and 'pending_review' as still open
       const [remaining] = await tx.select({ value: count() })
         .from(collisions)
         .where(and(
-          eq(collisions.jobId, collision.jobId), 
-          eq(collisions.status, 'detected')
+          eq(collisions.jobId, collision.jobId),
+          eq(collisions.orgId, session.orgId),
+          or(
+            eq(collisions.status, 'detected'),
+            eq(collisions.status, 'pending_review')
+          )
         ));
 
       if (remaining.value === 0) {
+        // Complete collision review task
+        await tx.update(reviewTasks)
+          .set({ status: 'completed', completedBy: session.userId, completedAt: new Date() })
+          .where(and(
+            eq(reviewTasks.jobId, collision.jobId),
+            eq(reviewTasks.taskType, 'collision_review'),
+            eq(reviewTasks.status, 'pending')
+          ));
+
         await tx.update(uploadJobs)
           .set({ status: 'ready', updatedAt: new Date() })
-          .where(eq(uploadJobs.id, collision.jobId));
+          .where(and(
+            eq(uploadJobs.id, collision.jobId),
+            eq(uploadJobs.orgId, session.orgId)
+          ));
       }
     });
 

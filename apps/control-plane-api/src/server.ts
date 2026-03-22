@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { verifyToken } from '@ecom-kit/shared-auth';
 import { UserSession } from '@ecom-kit/shared-types';
 import fastifyRedis from '@fastify/redis';
+import metricsPlugin from 'fastify-metrics';
 import { authRoutes } from './routes/auth.js';
 
 const fastify = Fastify({
@@ -97,11 +98,14 @@ fastify.register(fastifyRedis, {
   password: process.env.REDIS_PASSWORD,
 });
 
+fastify.register(metricsPlugin, { endpoint: '/metrics' });
+
 import { organizationRoutes } from './routes/organizations.js';
 import { membershipRoutes } from './routes/memberships.js';
 import { providerRoutes } from './routes/providers.js';
 import { serviceRoutes } from './routes/services.js';
 import { grantRoutes } from './routes/grants.js';
+import { billingRoutes } from './routes/billing.js';
 
 // Routes
 fastify.register(authRoutes, { prefix: '/api/v1/auth' });
@@ -110,6 +114,7 @@ fastify.register(membershipRoutes, { prefix: '/api/v1/memberships' });
 fastify.register(providerRoutes, { prefix: '/api/v1/providers' });
 fastify.register(serviceRoutes, { prefix: '/api/v1/services' });
 fastify.register(grantRoutes, { prefix: '/api/v1/grants' });
+fastify.register(billingRoutes, { prefix: '/api/v1/billing' });
 
 
 fastify.get('/health', async (request, reply) => {

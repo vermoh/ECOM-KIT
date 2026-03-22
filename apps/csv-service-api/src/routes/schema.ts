@@ -149,27 +149,56 @@ export async function schemaRoutes(fastify: FastifyInstance) {
   fastify.post('/uploads/:id/schema/reject', async (request, reply) => {
     const session = request.userSession!;
     const { id } = request.params as { id: string };
+    const { reason } = (request.body as { reason?: string }) || {};
 
     if (!hasPermission(session, 'schema:reject')) {
       return reply.status(403).send({ error: 'PERMISSION_DENIED' });
     }
 
+    // Verify the upload job exists and belongs to this tenant
+    const job = await db.query.uploadJobs.findFirst({
+      where: and(eq(uploadJobs.id, id), eq(uploadJobs.orgId, session.orgId))
+    });
+
+    if (!job) {
+      return reply.status(404).send({ error: 'JOB_NOT_FOUND' });
+    }
+
     await withTenant(session.orgId, async (tx) => {
+      // Strict tenant isolation: filter by BOTH jobId AND orgId
       await tx.update(schemaTemplates)
         .set({ status: 'rejected' })
-        .where(eq(schemaTemplates.jobId, id));
+        .where(and(
+          eq(schemaTemplates.jobId, id),
+          eq(schemaTemplates.orgId, session.orgId)
+        ));
 
+      // Revert UploadJob back to schema_draft so schema can be regenerated
       await tx.update(uploadJobs)
-        .set({ status: 'schema_draft' })
-        .where(eq(uploadJobs.id, id));
+        .set({ status: 'schema_draft', updatedAt: new Date() })
+        .where(and(
+          eq(uploadJobs.id, id),
+          eq(uploadJobs.orgId, session.orgId)
+        ));
+
+      // Mark the pending review task as skipped so a new one can be created
+      await tx.update(reviewTasks)
+        .set({ status: 'skipped', completedAt: new Date() })
+        .where(and(
+          eq(reviewTasks.jobId, id),
+          eq(reviewTasks.taskType, 'schema_review'),
+          eq(reviewTasks.status, 'pending')
+        ));
       
-      // Audit Log
+      // Audit Log — required for human checkpoint per csv_pipeline.md
       await tx.insert(auditLogs).values({
         orgId: session.orgId,
         userId: session.userId,
+        actorType: 'user',
         action: 'schema.reject',
         resourceType: 'upload_job',
         resourceId: id,
+        payload: JSON.stringify({ reason: reason || null }),
       });
     });
 

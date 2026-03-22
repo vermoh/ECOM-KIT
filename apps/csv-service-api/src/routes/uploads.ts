@@ -13,7 +13,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
   fastify.post('/projects/:projectId/uploads', async (request, reply) => {
     const session = request.userSession!;
     const { projectId } = request.params as { projectId: string };
-    const { filename } = request.body as { filename: string };
+    const { filename, includeSeo } = request.body as { filename: string; includeSeo?: boolean };
 
     if (!hasPermission(session, 'upload:create')) {
       return reply.status(403).send({ error: 'Forbidden: upload:create required' });
@@ -47,6 +47,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         status: 'pending',
         s3Key,
         originalFilename: filename,
+        includeSeo: includeSeo || false,
       }).returning();
     });
 
@@ -113,6 +114,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
   fastify.post('/uploads/:id/start', async (request, reply) => {
     const session = request.userSession!;
     const { id } = request.params as { id: string };
+    const { includeSeo } = request.body as { includeSeo?: boolean };
 
     if (!hasPermission(session, 'enrichment:start')) {
       return reply.status(403).send({ error: 'Forbidden: enrichment:start required' });
@@ -142,8 +144,12 @@ export async function uploadRoutes(fastify: FastifyInstance) {
 
     // Update status to pending (redundant but sets updatedAt)
     await withTenant(session.orgId, async (tx) => {
+      const updateData: any = { status: 'pending', updatedAt: new Date() };
+      if (includeSeo !== undefined) {
+        updateData.includeSeo = includeSeo;
+      }
       await tx.update(uploadJobs)
-        .set({ status: 'pending', updatedAt: new Date() })
+        .set(updateData)
         .where(eq(uploadJobs.id, id));
     });
 

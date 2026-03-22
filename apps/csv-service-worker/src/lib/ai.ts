@@ -111,3 +111,52 @@ export async function enrichItem(
     throw error;
   }
 }
+
+export async function generateSeoAttributes(
+  itemData: any,
+  lang: string,
+  apiKey: string
+): Promise<{ seoData: any; tokensUsed: number }> {
+  const prompt = `
+    As an SEO expert, generate SEO attributes for the following product data in language "${lang}".
+    
+    Product Data: ${JSON.stringify(itemData)}
+    
+    Required Attributes:
+    - seo_title: Compelling title tag (60 chars max)
+    - seo_description: Engaging meta description (160 chars max)
+    - seo_keywords: Comma-separated relevant keywords
+    
+    Return a JSON object with:
+    1. "seo_data": an object where keys are "seo_title", "seo_description", "seo_keywords".
+    
+    Return ONLY valid JSON.
+  `;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    const data = await response.json() as any;
+    const content = data.choices[0].message.content;
+    const parsed = JSON.parse(content);
+    
+    return {
+      seoData: parsed.seo_data || {},
+      tokensUsed: data.usage?.total_tokens || 0
+    };
+  } catch (error) {
+    console.error('Error in generateSeoAttributes:', error);
+    throw error;
+  }
+}

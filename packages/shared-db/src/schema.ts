@@ -20,12 +20,16 @@ export const uploadJobStatusEnum = pgEnum('upload_job_status', [
   'ready', 
   'exporting', 
   'done', 
-  'failed'
+  'failed',
+  'paused'
 ]);
 
-export const enrichmentRunStatusEnum = pgEnum('enrichment_run_status', ['queued', 'running', 'completed', 'failed']);
+export const enrichmentRunStatusEnum = pgEnum('enrichment_run_status', ['queued', 'running', 'completed', 'failed', 'paused']);
 export const enrichedItemStatusEnum = pgEnum('enriched_item_status', ['ok', 'collision', 'manual_override']);
-export const collisionStatusEnum = pgEnum('collision_status', ['detected', 'pending_review', 'resolved', 'dismissed']);
+export const collisionStatusEnum = pgEnum('collision_status', ['detected', 'pending_review', 'resolved', 'dismissed', 'ignored']);
+export const exportStatusEnum = pgEnum('export_status', ['queued', 'generating', 'ready', 'expired', 'failed']);
+// Gap 9: dedicated enum for SEO task status (previously reused enrichmentRunStatusEnum)
+export const seoTaskStatusEnum = pgEnum('seo_task_status', ['queued', 'running', 'completed', 'failed', 'paused']);
 
 export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -38,6 +42,8 @@ export const organizations = pgTable('organizations', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
+  billingCustomerId: text('billing_customer_id'),
+  subscriptionId: text('subscription_id'),
 });
 
 export const users = pgTable('users', {
@@ -142,9 +148,26 @@ export const uploadJobs = pgTable('upload_jobs', {
   s3Key: text('s3_key').notNull(),
   originalFilename: text('original_filename').notNull(),
   rowCount: integer('row_count'),
+  includeSeo: boolean('include_seo').default(false).notNull(),
   errorDetails: text('error_details'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const seoTasks = pgTable('seo_tasks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id),
+  uploadId: uuid('upload_id').notNull().references(() => uploadJobs.id, { onDelete: 'cascade' }),
+  runId: uuid('run_id').notNull().references(() => enrichmentRuns.id),
+  // Gap 9: use dedicated seoTaskStatusEnum instead of enrichmentRunStatusEnum
+  status: seoTaskStatusEnum('status').default('queued').notNull(),
+  lang: text('lang').default('ru').notNull(),
+  totalItems: integer('total_items').default(0),
+  processedItems: integer('processed_items').default(0).notNull(),
+  tokensUsed: integer('tokens_used').default(0).notNull(),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 export const auditLogs = pgTable('audit_logs', {
@@ -245,6 +268,7 @@ export const enrichedItems = pgTable('enriched_items', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull().references(() => organizations.id),
   runId: uuid('run_id').notNull().references(() => enrichmentRuns.id),
+  uploadId: uuid('upload_id').notNull().references(() => uploadJobs.id),
   skuExternalId: text('sku_external_id').notNull(),
   rawData: text('raw_data'), // JSON string or text
   enrichedData: text('enriched_data'), // JSON string `{field_name: value}`
@@ -252,6 +276,8 @@ export const enrichedItems = pgTable('enriched_items', {
   status: enrichedItemStatusEnum('status').default('ok').notNull(),
   reviewedBy: uuid('reviewed_by').references(() => users.id),
   reviewedAt: timestamp('reviewed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 export const collisions = pgTable('collisions', {
@@ -269,6 +295,44 @@ export const collisions = pgTable('collisions', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const exportJobs = pgTable('export_jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id),
+  uploadId: uuid('upload_id').notNull().references(() => uploadJobs.id),
+  requestedBy: uuid('requested_by').notNull().references(() => users.id),
+  status: exportStatusEnum('status').default('queued').notNull(),
+  s3Key: text('s3_key'),
+  signedUrl: text('signed_url'),
+  urlExpiresAt: timestamp('url_expires_at'),
+  includeSeo: boolean('include_seo').default(false).notNull(),
+  errorMessage: text('error_message'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  completedAt: timestamp('completed_at'),
+});
+
+export const tokenBudgets = pgTable('token_budgets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id),
+  totalTokens: integer('total_tokens').notNull().default(100000),
+  remainingTokens: integer('remaining_tokens').notNull().default(100000),
+  resetAt: timestamp('reset_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  orgBudgetIdx: uniqueIndex('org_budget_idx').on(table.orgId),
+}));
+
+export const tokenUsageLogs = pgTable('token_usage_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id),
+  serviceId: uuid('service_id').references(() => services.id),
+  jobId: uuid('job_id'),
+  tokensUsed: integer('tokens_used').notNull(),
+  model: text('model'),
+  purpose: text('purpose').notNull(), // enrichment, seo, schema_generation
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 
 // Relations
 export const uploadJobsRelations = relations(uploadJobs, ({ one, many }) => ({
@@ -279,6 +343,19 @@ export const uploadJobsRelations = relations(uploadJobs, ({ one, many }) => ({
   schemaTemplates: many(schemaTemplates),
   reviewTasks: many(reviewTasks),
   collisions: many(collisions),
+  exports: many(exportJobs),
+  seoTasks: many(seoTasks),
+}));
+
+export const seoTasksRelations = relations(seoTasks, ({ one }) => ({
+  upload: one(uploadJobs, {
+    fields: [seoTasks.uploadId],
+    references: [uploadJobs.id],
+  }),
+  run: one(enrichmentRuns, {
+    fields: [seoTasks.runId],
+    references: [enrichmentRuns.id],
+  }),
 }));
 
 export const schemaTemplatesRelations = relations(schemaTemplates, ({ one, many }) => ({
@@ -331,5 +408,38 @@ export const collisionsRelations = relations(collisions, ({ one }) => ({
   item: one(enrichedItems, {
     fields: [collisions.enrichedItemId],
     references: [enrichedItems.id],
+  }),
+}));
+
+export const exportJobsRelations = relations(exportJobs, ({ one }) => ({
+  org: one(organizations, {
+    fields: [exportJobs.orgId],
+    references: [organizations.id],
+  }),
+  upload: one(uploadJobs, {
+    fields: [exportJobs.uploadId],
+    references: [uploadJobs.id],
+  }),
+  user: one(users, {
+    fields: [exportJobs.requestedBy],
+    references: [users.id],
+  }),
+}));
+
+export const tokenBudgetsRelations = relations(tokenBudgets, ({ one }) => ({
+  org: one(organizations, {
+    fields: [tokenBudgets.orgId],
+    references: [organizations.id],
+  }),
+}));
+
+export const tokenUsageLogsRelations = relations(tokenUsageLogs, ({ one }) => ({
+  org: one(organizations, {
+    fields: [tokenUsageLogs.orgId],
+    references: [organizations.id],
+  }),
+  service: one(services, {
+    fields: [tokenUsageLogs.serviceId],
+    references: [services.id],
   }),
 }));

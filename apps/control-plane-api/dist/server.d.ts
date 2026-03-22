@@ -1,7 +1,7 @@
+import { UserSession } from '@ecom-kit/shared-types';
 declare module 'fastify' {
     interface FastifyRequest {
-        userSession?: any;
+        userSession?: UserSession;
     }
 }
-export {};
 //# sourceMappingURL=server.d.ts.map

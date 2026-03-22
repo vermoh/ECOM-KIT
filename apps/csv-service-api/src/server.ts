@@ -1,15 +1,19 @@
 import Fastify from 'fastify';
 import { verifyToken } from '@ecom-kit/shared-auth';
 import { UserSession } from '@ecom-kit/shared-types';
+import metricsPlugin from 'fastify-metrics';
 
 const fastify = Fastify({
   logger: true
 });
 
+fastify.register(metricsPlugin, { endpoint: '/metrics' });
+
 declare module 'fastify' {
   interface FastifyRequest {
     userSession?: UserSession;
     accessGrant?: any;
+    correlationId?: string; // Gap 8: x-correlation-id for cross-service audit tracing
   }
 }
 
@@ -27,7 +31,11 @@ fastify.setErrorHandler(function (error, request, reply) {
 
 // Auth Hook
 fastify.addHook('onRequest', async (request, reply) => {
-  if (request.url === '/health') return;
+  if (request.url === '/health' || request.url === '/metrics') return;
+
+  // Gap 8: Extract correlation_id for cross-service audit tracing (Integration Contract)
+  request.correlationId = (request.headers['x-correlation-id'] as string) 
+    || crypto.randomUUID();
 
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -49,6 +57,8 @@ import { schemaRoutes } from './routes/schema';
 import { taskRoutes } from './routes/tasks';
 import { enrichmentRoutes } from './routes/enrichment';
 import { collisionsRoutes } from './routes/collisions';
+import { exportRoutes } from './routes/exports';
+import { itemsRoutes } from './routes/items';
 
 fastify.register(projectRoutes);
 fastify.register(uploadRoutes);
@@ -56,6 +66,8 @@ fastify.register(schemaRoutes);
 fastify.register(taskRoutes);
 fastify.register(enrichmentRoutes);
 fastify.register(collisionsRoutes);
+fastify.register(exportRoutes);
+fastify.register(itemsRoutes); // Gap 4: enriched items listing
 
 fastify.get('/health', async (request, reply) => {
   return { status: 'ok', service: 'csv-service-api' };
