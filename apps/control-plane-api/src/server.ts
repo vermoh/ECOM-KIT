@@ -28,11 +28,20 @@ fastify.setErrorHandler(function (error, request, reply) {
 
 import { checkOrgStatus, checkTemporalAccess } from './guards.js';
 
+import { accessGrants } from '@ecom-kit/shared-db';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import { eq, and, isNull } from 'drizzle-orm';
+import crypto from 'node:crypto';
+
+const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
+const client = postgres(connectionString);
+const db = drizzle(client);
+
 // Auth Guard Hook
 fastify.addHook('onRequest', async (request, reply) => {
   // Allow health checks and auth routes unconditionally
   if (request.url === '/health' || request.url.startsWith('/api/v1/auth') || request.url === '/api/v1/grants/verify') return;
-
 
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -40,18 +49,41 @@ fastify.addHook('onRequest', async (request, reply) => {
     return reply;
   }
 
+  const token = authHeader.split(' ')[1];
+
   try {
-    const token = authHeader.split(' ')[1];
-    const session = verifyToken(token);
-    request.userSession = session;
+    // 1. Try JWT (User Session)
+    if (token.includes('.') && token.split('.').length === 3) {
+      const session = verifyToken(token);
+      request.userSession = session;
+      
+      // Additional checks for User Session
+      await checkOrgStatus(request, reply);
+      if (reply.sent) return;
+      await checkTemporalAccess(request, reply);
+      if (reply.sent) return;
+      return;
+    }
 
-    // Layer 2: Org Status
-    await checkOrgStatus(request, reply);
-    if (reply.sent) return;
+    // 2. Try AccessGrant (Service Token)
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [grant] = await db.select().from(accessGrants).where(and(
+      eq(accessGrants.tokenHash, tokenHash),
+      isNull(accessGrants.revokedAt)
+    )).limit(1);
 
-    // Layer 3: Temporal Access
-    await checkTemporalAccess(request, reply);
-    if (reply.sent) return;
+    if (grant && grant.expiresAt > new Date()) {
+      request.userSession = {
+        userId: `service:${grant.serviceId}`,
+        orgId: grant.orgId,
+        roles: [],
+        permissions: grant.scopes,
+        exp: Math.floor(grant.expiresAt.getTime() / 1000)
+      };
+      return;
+    }
+
+    throw new Error('Invalid or expired token');
   } catch (err: any) {
     reply.status(401).send({ error: 'Unauthorized: Invalid token', details: err.message });
     return reply;

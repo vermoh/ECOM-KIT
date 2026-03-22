@@ -22,6 +22,20 @@
       "when": 1773764585376,
       "tag": "0002_thick_nightshade",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1773766866664,
+      "tag": "0003_first_silver_samurai",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1774114025062,
+      "tag": "0004_high_rogue",
+      "breakpoints": true
     }
   ]
 }

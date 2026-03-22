@@ -10,7 +10,12 @@
   "dependencies": {
     "fastify": "^4.26.2",
     "@ecom-kit/shared-types": "workspace:*",
-    "@ecom-kit/shared-db": "workspace:*"
+    "@ecom-kit/shared-db": "workspace:*",
+    "@ecom-kit/shared-auth": "workspace:*",
+    "bullmq": "^5.4.1",
+    "ioredis": "^5.3.2",
+    "csv-parse": "^5.5.5",
+    "@aws-sdk/client-s3": "^3.525.0"
   },
   "devDependencies": {
     "tsx": "^4.7.1",

@@ -1,7 +1,8 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { sql } from 'drizzle-orm';
 import * as schema from './schema';
+export { eq, and, or, desc, asc, sql, count } from 'drizzle-orm';
+import { sql as drizzleSql } from 'drizzle-orm';
 
 const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
 
@@ -19,7 +20,7 @@ export async function withTenant<T>(
 ): Promise<T> {
   return db.transaction(async (tx) => {
     // Set the session variable for RLS
-    await tx.execute(sql`SELECT set_config('app.current_org_id', ${orgId}, true)`);
+    await tx.execute(drizzleSql`SELECT set_config('app.current_org_id', ${orgId}, true)`);
     return callback(tx);
   });
 }

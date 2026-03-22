@@ -146,4 +146,31 @@ export async function providerRoutes(fastify: FastifyInstance) {
 
     return reply.status(204).send();
   });
+
+  // FOR SERVICES: Get decrypted key
+  fastify.get('/key/:provider', {
+    preHandler: [requirePermission('secret:read')]
+  }, async (request, reply) => {
+    const session = request.userSession!;
+    const { provider } = request.params as any;
+
+    const [config] = await db.select()
+      .from(providerConfigs)
+      .where(and(
+        eq(providerConfigs.orgId, session.orgId),
+        eq(providerConfigs.provider, provider)
+      ))
+      .limit(1);
+
+    if (!config) {
+      return reply.status(404).send({ error: 'CONFIG_NOT_FOUND' });
+    }
+
+    const decryptedValue = decrypt(config.encryptedValue, MASTER_KEY);
+
+    return {
+      provider: config.provider,
+      value: decryptedValue
+    };
+  });
 }
