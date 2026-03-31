@@ -87,7 +87,15 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Upload job not found' });
     }
 
-    return job;
+    const latestRun = await db.query.enrichmentRuns.findFirst({
+      where: and(eq(enrichmentRuns.jobId, job.id), eq(enrichmentRuns.orgId, session.orgId)),
+      orderBy: (runs, { desc }) => [desc(runs.createdAt)],
+    });
+
+    return {
+      ...job,
+      enrichmentRun: latestRun || null
+    };
   });
 
   // List uploads for a project
