@@ -3,7 +3,7 @@ export * from './password.js';
 export * from './crypto.js';
 
 
-import { UserSession } from '@ecom-kit/shared-types';
+import { UserSession } from '@ecom-kit/shared-types/src/index.js';
 
 export function hasPermission(session: UserSession, permission: string): boolean {
   if (session.permissions.includes('*')) return true;

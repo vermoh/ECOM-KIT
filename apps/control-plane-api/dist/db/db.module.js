@@ -47,7 +47,7 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const postgres_js_1 = require("drizzle-orm/postgres-js");
 const postgres_1 = __importDefault(require("postgres"));
-const schema = __importStar(require("@ecom-kit/shared-db"));
+const schema = __importStar(require("@ecom-kit/shared-db/src/schema"));
 exports.DRIZZLE = 'DRIZZLE';
 let DbModule = class DbModule {
 };

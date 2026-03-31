@@ -1,40 +1,32 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.organizationRoutes = organizationRoutes;
-const drizzle_orm_1 = require("drizzle-orm");
 const shared_db_1 = require("@ecom-kit/shared-db");
-const postgres_js_1 = require("drizzle-orm/postgres-js");
-const postgres_1 = __importDefault(require("postgres"));
+const shared_db_2 = require("@ecom-kit/shared-db");
 const guards_js_1 = require("../guards.js");
-const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
-const client = (0, postgres_1.default)(connectionString);
-const db = (0, postgres_js_1.drizzle)(client);
 async function organizationRoutes(fastify) {
     fastify.get('/', {
         preHandler: [(0, guards_js_1.requirePermission)('organization:read')]
     }, async (request, reply) => {
         const session = request.userSession;
         if (session.roles.includes('super_admin')) {
-            const allOrgs = await db.select().from(shared_db_1.organizations);
+            const allOrgs = await shared_db_1.db.select().from(shared_db_2.organizations);
             return allOrgs;
         }
-        const org = await db.select().from(shared_db_1.organizations).where((0, drizzle_orm_1.eq)(shared_db_1.organizations.id, session.orgId)).limit(1);
+        const org = await shared_db_1.db.select().from(shared_db_2.organizations).where((0, shared_db_1.eq)(shared_db_2.organizations.id, session.orgId)).limit(1);
         return org;
     });
     fastify.post('/', {
         preHandler: [(0, guards_js_1.requirePermission)('organization:create')]
     }, async (request, reply) => {
         const { name, slug } = request.body;
-        const [newOrg] = await db.insert(shared_db_1.organizations).values({
+        const [newOrg] = await shared_db_1.db.insert(shared_db_2.organizations).values({
             name,
             slug,
             status: 'active',
             plan: 'free',
         }).returning();
-        await db.insert(shared_db_1.auditLogs).values({
+        await shared_db_1.db.insert(shared_db_2.auditLogs).values({
             orgId: newOrg.id,
             userId: request.userSession.userId,
             action: 'organization.create',
@@ -51,11 +43,11 @@ async function organizationRoutes(fastify) {
         if (!session.roles.includes('super_admin') && session.orgId !== id) {
             return reply.status(403).send({ error: 'PERMISSION_DENIED' });
         }
-        const [updatedOrg] = await db.update(shared_db_1.organizations)
+        const [updatedOrg] = await shared_db_1.db.update(shared_db_2.organizations)
             .set({ ...updates, updatedAt: new Date() })
-            .where((0, drizzle_orm_1.eq)(shared_db_1.organizations.id, id))
+            .where((0, shared_db_1.eq)(shared_db_2.organizations.id, id))
             .returning();
-        await db.insert(shared_db_1.auditLogs).values({
+        await shared_db_1.db.insert(shared_db_2.auditLogs).values({
             orgId: id,
             userId: session.userId,
             action: 'organization.update',

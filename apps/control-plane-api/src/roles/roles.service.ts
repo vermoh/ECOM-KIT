@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { DRIZZLE } from '../db/db.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '@ecom-kit/shared-db';
-import { eq, and } from 'drizzle-orm';
+import { eq, and } from '@ecom-kit/shared-db';
 
 @Injectable()
 export class RolesService {

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.tokenUsageLogsRelations = exports.tokenBudgetsRelations = exports.exportJobsRelations = exports.collisionsRelations = exports.enrichedItemsRelations = exports.enrichmentRunsRelations = exports.reviewTasksRelations = exports.schemaFieldsRelations = exports.schemaTemplatesRelations = exports.seoTasksRelations = exports.uploadJobsRelations = exports.tokenUsageLogs = exports.tokenBudgets = exports.exportJobs = exports.collisions = exports.enrichedItems = exports.enrichmentRuns = exports.reviewTasks = exports.schemaFields = exports.schemaTemplates = exports.providerConfigs = exports.reviewTaskStatusEnum = exports.reviewTaskTypeEnum = exports.schemaFieldTypeEnum = exports.schemaTemplateStatusEnum = exports.providerEnum = exports.refreshTokens = exports.auditLogs = exports.seoTasks = exports.uploadJobs = exports.projects = exports.accessGrants = exports.serviceAccess = exports.services = exports.memberships = exports.rolePermissions = exports.permissions = exports.roles = exports.users = exports.organizations = exports.exportStatusEnum = exports.collisionStatusEnum = exports.enrichedItemStatusEnum = exports.enrichmentRunStatusEnum = exports.uploadJobStatusEnum = exports.serviceStatusEnum = exports.membershipStatusEnum = exports.userStatusEnum = exports.orgStatusEnum = exports.orgPlanEnum = void 0;
+exports.tokenBudgetsRelations = exports.exportJobsRelations = exports.collisionsRelations = exports.enrichedItemsRelations = exports.enrichmentRunsRelations = exports.reviewTasksRelations = exports.schemaFieldsRelations = exports.schemaTemplatesRelations = exports.seoTasksRelations = exports.uploadJobsRelations = exports.tokenUsageLogs = exports.tokenBudgets = exports.exportJobs = exports.collisions = exports.enrichedItems = exports.enrichmentRuns = exports.reviewTasks = exports.schemaFields = exports.schemaTemplates = exports.providerConfigs = exports.reviewTaskStatusEnum = exports.reviewTaskTypeEnum = exports.schemaFieldTypeEnum = exports.schemaTemplateStatusEnum = exports.providerEnum = exports.refreshTokens = exports.auditLogs = exports.seoTasks = exports.uploadJobs = exports.projects = exports.accessGrants = exports.serviceAccess = exports.services = exports.memberships = exports.rolePermissions = exports.permissions = exports.roles = exports.users = exports.organizations = exports.seoTaskStatusEnum = exports.exportStatusEnum = exports.collisionStatusEnum = exports.enrichedItemStatusEnum = exports.enrichmentRunStatusEnum = exports.uploadJobStatusEnum = exports.serviceStatusEnum = exports.membershipStatusEnum = exports.userStatusEnum = exports.orgStatusEnum = exports.orgPlanEnum = void 0;
+exports.tokenUsageLogsRelations = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
 const drizzle_orm_1 = require("drizzle-orm");
 // Enums
@@ -22,12 +23,15 @@ exports.uploadJobStatusEnum = (0, pg_core_1.pgEnum)('upload_job_status', [
     'ready',
     'exporting',
     'done',
-    'failed'
+    'failed',
+    'paused'
 ]);
-exports.enrichmentRunStatusEnum = (0, pg_core_1.pgEnum)('enrichment_run_status', ['queued', 'running', 'completed', 'failed']);
+exports.enrichmentRunStatusEnum = (0, pg_core_1.pgEnum)('enrichment_run_status', ['queued', 'running', 'completed', 'failed', 'paused']);
 exports.enrichedItemStatusEnum = (0, pg_core_1.pgEnum)('enriched_item_status', ['ok', 'collision', 'manual_override']);
-exports.collisionStatusEnum = (0, pg_core_1.pgEnum)('collision_status', ['detected', 'pending_review', 'resolved', 'dismissed']);
+exports.collisionStatusEnum = (0, pg_core_1.pgEnum)('collision_status', ['detected', 'pending_review', 'resolved', 'dismissed', 'ignored']);
 exports.exportStatusEnum = (0, pg_core_1.pgEnum)('export_status', ['queued', 'generating', 'ready', 'expired', 'failed']);
+// Gap 9: dedicated enum for SEO task status (previously reused enrichmentRunStatusEnum)
+exports.seoTaskStatusEnum = (0, pg_core_1.pgEnum)('seo_task_status', ['queued', 'running', 'completed', 'failed', 'paused']);
 exports.organizations = (0, pg_core_1.pgTable)('organizations', {
     id: (0, pg_core_1.uuid)('id').primaryKey().defaultRandom(),
     slug: (0, pg_core_1.text)('slug').notNull().unique(),
@@ -145,7 +149,8 @@ exports.seoTasks = (0, pg_core_1.pgTable)('seo_tasks', {
     orgId: (0, pg_core_1.uuid)('org_id').notNull().references(() => exports.organizations.id),
     uploadId: (0, pg_core_1.uuid)('upload_id').notNull().references(() => exports.uploadJobs.id, { onDelete: 'cascade' }),
     runId: (0, pg_core_1.uuid)('run_id').notNull().references(() => exports.enrichmentRuns.id),
-    status: (0, exports.enrichmentRunStatusEnum)('status').default('queued').notNull(),
+    // Gap 9: use dedicated seoTaskStatusEnum instead of enrichmentRunStatusEnum
+    status: (0, exports.seoTaskStatusEnum)('status').default('queued').notNull(),
     lang: (0, pg_core_1.text)('lang').default('ru').notNull(),
     totalItems: (0, pg_core_1.integer)('total_items').default(0),
     processedItems: (0, pg_core_1.integer)('processed_items').default(0).notNull(),

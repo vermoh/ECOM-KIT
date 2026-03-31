@@ -1,14 +1,10 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and } from 'drizzle-orm';
-import { providerConfigs, auditLogs } from '@ecom-kit/shared-db';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import { eq, and, isNull, db } from '@ecom-kit/shared-db';
+import { providerConfigs, auditLogs, accessGrants } from '@ecom-kit/shared-db';
 import { requirePermission } from '../guards.js';
 import { encrypt, decrypt } from '@ecom-kit/shared-auth';
+import crypto from 'node:crypto';
 
-const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
-const client = postgres(connectionString);
-const db = drizzle(client);
 
 // Master key for encryption (should be in env in production)
 const MASTER_KEY = process.env.ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -147,17 +143,62 @@ export async function providerRoutes(fastify: FastifyInstance) {
     return reply.status(204).send();
   });
 
-  // FOR SERVICES: Get decrypted key
-  fastify.get('/key/:provider', {
-    preHandler: [requirePermission('secret:read')]
-  }, async (request, reply) => {
-    const session = request.userSession!;
+  // FOR SERVICES: Get decrypted key — supports both JWT session (user) and AccessGrant token (worker)
+  fastify.get('/key/:provider', async (request, reply) => {
     const { provider } = request.params as any;
+
+    let orgId: string | undefined;
+
+    // 1. Try JWT session first (user-initiated call)
+    if (request.userSession?.orgId) {
+      if (!request.userSession.permissions?.includes('secret:read') && !request.userSession.permissions?.includes('*')) {
+        return reply.status(403).send({ error: 'PERMISSION_DENIED', permission: 'secret:read' });
+      }
+      orgId = request.userSession.orgId;
+    } else {
+      // 2. Fallback: try AccessGrant token (service worker call) — direct DB lookup, no HTTP self-call
+      const authHeader = (request.headers['authorization'] as string) || '';
+      const token = authHeader.replace('Bearer ', '');
+
+      if (!token) {
+        return reply.status(401).send({ error: 'Unauthorized' });
+      }
+
+      try {
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+        const [grant] = await db.select()
+          .from(accessGrants)
+          .where(and(
+            eq(accessGrants.tokenHash, tokenHash),
+            isNull(accessGrants.revokedAt)
+          ))
+          .limit(1);
+
+        if (!grant || grant.expiresAt < new Date()) {
+          return reply.status(401).send({ error: 'INVALID_OR_EXPIRED_GRANT' });
+        }
+
+        if (!Array.isArray(grant.scopes) || !grant.scopes.includes('secret:read')) {
+          return reply.status(403).send({ error: 'PERMISSION_DENIED', permission: 'secret:read' });
+        }
+
+        orgId = grant.orgId;
+      } catch (err) {
+        console.error('[Providers] AccessGrant DB verify failed:', err);
+        return reply.status(500).send({ error: 'GRANT_VERIFY_FAILED' });
+      }
+    }
+
+
+    if (!orgId) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
 
     const [config] = await db.select()
       .from(providerConfigs)
       .where(and(
-        eq(providerConfigs.orgId, session.orgId),
+        eq(providerConfigs.orgId, orgId),
         eq(providerConfigs.provider, provider)
       ))
       .limit(1);
@@ -167,6 +208,8 @@ export async function providerRoutes(fastify: FastifyInstance) {
     }
 
     const decryptedValue = decrypt(config.encryptedValue, MASTER_KEY);
+
+    console.log(`[Providers] Key resolved for org ${orgId}, provider ${provider}, hint: ***${config.keyHint}`);
 
     return {
       provider: config.provider,

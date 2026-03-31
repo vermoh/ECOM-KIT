@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import { verifyToken } from '@ecom-kit/shared-auth';
 import { UserSession } from '@ecom-kit/shared-types';
 import metricsPlugin from 'fastify-metrics';
@@ -7,6 +8,9 @@ const fastify = Fastify({
   logger: true
 });
 
+fastify.register(cors, {
+  origin: true // Allows all origins in development
+});
 fastify.register(metricsPlugin, { endpoint: '/metrics' });
 
 declare module 'fastify' {
@@ -75,7 +79,8 @@ fastify.get('/health', async (request, reply) => {
 
 const start = async () => {
   try {
-    await fastify.listen({ port: 3001, host: '0.0.0.0' });
+    const port = Number(process.env.CSV_API_PORT) || 4001;
+    await fastify.listen({ port, host: '0.0.0.0' });
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

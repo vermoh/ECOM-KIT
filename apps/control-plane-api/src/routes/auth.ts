@@ -1,16 +1,10 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, db } from '@ecom-kit/shared-db';
 import { users, auditLogs, refreshTokens, memberships, organizations } from '@ecom-kit/shared-db';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
 import { comparePassword, hashPassword, generateToken, verifyToken } from '@ecom-kit/shared-auth';
 import { UserSession } from '@ecom-kit/shared-types';
 import { v4 as uuidv4 } from 'uuid';
 import { getEffectivePermissions } from '../rbac.js';
-
-const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
-const client = postgres(connectionString);
-const db = drizzle(client);
 
 export async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/register', async (request, reply) => {
@@ -60,7 +54,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     let validUntil: string | undefined;
 
     if (user.isSuperAdmin) {
-      sessionOrgId = orgId || '00000000-0000-0000-0000-000000000000'; // Platform org
+      sessionOrgId = orgId || '00000000-0000-0000-0000-000000000001'; // Default Org (must exist in orgs table)
       rolesSet = ['super_admin'];
       permissionsSet = ['*'];
     } else {
@@ -114,7 +108,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     await db.insert(auditLogs).values({
       userId: user.id,
-      orgId: sessionOrgId === '00000000-0000-0000-0000-000000000000' ? null : sessionOrgId,
+      orgId: sessionOrgId === '00000000-0000-0000-0000-000000000001' ? null : sessionOrgId,
       action: 'user.login',
       payload: JSON.stringify({ email: user.email }),
     });
@@ -208,7 +202,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     // Retrieve the last known session to maintain org context
     const lastSessionStr = await fastify.redis.get(`session:${user.id}`);
     const lastSession = lastSessionStr ? JSON.parse(lastSessionStr) : null;
-    const sessionOrgId = lastSession?.orgId || '00000000-0000-0000-0000-000000000000';
+    const sessionOrgId = lastSession?.orgId || '00000000-0000-0000-0000-000000000001';
 
     let rolesSet: string[] = [];
     let permissionsSet: string[] = [];

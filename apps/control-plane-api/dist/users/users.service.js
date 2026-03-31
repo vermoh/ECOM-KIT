@@ -49,7 +49,7 @@ exports.UsersService = void 0;
 const common_1 = require("@nestjs/common");
 const db_module_1 = require("../db/db.module");
 const schema = __importStar(require("@ecom-kit/shared-db"));
-const drizzle_orm_1 = require("drizzle-orm");
+const shared_db_1 = require("@ecom-kit/shared-db");
 const bcrypt = __importStar(require("bcrypt"));
 let UsersService = class UsersService {
     constructor(db) {
@@ -57,7 +57,7 @@ let UsersService = class UsersService {
     }
     async findOne(id) {
         const user = await this.db.query.users.findFirst({
-            where: (0, drizzle_orm_1.eq)(schema.users.id, id),
+            where: (0, shared_db_1.eq)(schema.users.id, id),
         });
         if (!user)
             throw new common_1.NotFoundException('User not found');
@@ -65,7 +65,7 @@ let UsersService = class UsersService {
     }
     async findByEmail(email) {
         return this.db.query.users.findFirst({
-            where: (0, drizzle_orm_1.eq)(schema.users.email, email),
+            where: (0, shared_db_1.eq)(schema.users.email, email),
         });
     }
     async create(data) {
@@ -83,7 +83,7 @@ let UsersService = class UsersService {
         const [updatedUser] = await this.db
             .update(schema.users)
             .set({ ...data, updatedAt: new Date() })
-            .where((0, drizzle_orm_1.eq)(schema.users.id, id))
+            .where((0, shared_db_1.eq)(schema.users.id, id))
             .returning();
         if (!updatedUser)
             throw new common_1.NotFoundException('User not found');

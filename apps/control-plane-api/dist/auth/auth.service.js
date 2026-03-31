@@ -53,7 +53,7 @@ const roles_service_1 = require("../roles/roles.service");
 const bcrypt = __importStar(require("bcrypt"));
 const db_module_1 = require("../db/db.module");
 const schema = __importStar(require("@ecom-kit/shared-db"));
-const drizzle_orm_1 = require("drizzle-orm");
+const shared_db_1 = require("@ecom-kit/shared-db");
 const crypto = __importStar(require("node:crypto"));
 let AuthService = class AuthService {
     constructor(usersService, rolesService, jwtService, db) {
@@ -72,7 +72,7 @@ let AuthService = class AuthService {
     }
     async login(user, orgId) {
         const membership = await this.db.query.memberships.findFirst({
-            where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema.memberships.userId, user.id), (0, drizzle_orm_1.eq)(schema.memberships.orgId, orgId), (0, drizzle_orm_1.eq)(schema.memberships.status, 'active'))
+            where: (0, shared_db_1.and)((0, shared_db_1.eq)(schema.memberships.userId, user.id), (0, shared_db_1.eq)(schema.memberships.orgId, orgId), (0, shared_db_1.eq)(schema.memberships.status, 'active'))
         });
         if (!membership) {
             throw new common_1.UnauthorizedException('User is not a member of this organization');
@@ -93,7 +93,7 @@ let AuthService = class AuthService {
     async verifyServiceToken(token) {
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         const grant = await this.db.query.accessGrants.findFirst({
-            where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema.accessGrants.tokenHash, tokenHash), (0, drizzle_orm_1.isNull)(schema.accessGrants.revokedAt))
+            where: (0, shared_db_1.and)((0, shared_db_1.eq)(schema.accessGrants.tokenHash, tokenHash), (0, shared_db_1.isNull)(schema.accessGrants.revokedAt))
         });
         if (grant && grant.expiresAt > new Date()) {
             return {

@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
@@ -18,7 +19,7 @@ async function bootstrap() {
     transform: true,
   }));
 
-  const port = process.env.PORT || 8080;
+  const port = process.env.PORT || 4000;
   await app.listen(port);
   console.log(`Control Plane API is running on: http://localhost:${port}/api/v1`);
 }

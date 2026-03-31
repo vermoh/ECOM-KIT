@@ -3,11 +3,12 @@ export declare const orgStatusEnum: import("drizzle-orm/pg-core").PgEnum<["activ
 export declare const userStatusEnum: import("drizzle-orm/pg-core").PgEnum<["active", "locked", "pending", "deleted"]>;
 export declare const membershipStatusEnum: import("drizzle-orm/pg-core").PgEnum<["active", "invited", "suspended", "removed"]>;
 export declare const serviceStatusEnum: import("drizzle-orm/pg-core").PgEnum<["active", "maintenance", "deprecated"]>;
-export declare const uploadJobStatusEnum: import("drizzle-orm/pg-core").PgEnum<["pending", "parsing", "parsed", "schema_draft", "schema_review", "schema_confirmed", "enriching", "enriched", "needs_collision_review", "ready", "exporting", "done", "failed"]>;
-export declare const enrichmentRunStatusEnum: import("drizzle-orm/pg-core").PgEnum<["queued", "running", "completed", "failed"]>;
+export declare const uploadJobStatusEnum: import("drizzle-orm/pg-core").PgEnum<["pending", "parsing", "parsed", "schema_draft", "schema_review", "schema_confirmed", "enriching", "enriched", "needs_collision_review", "ready", "exporting", "done", "failed", "paused"]>;
+export declare const enrichmentRunStatusEnum: import("drizzle-orm/pg-core").PgEnum<["queued", "running", "completed", "failed", "paused"]>;
 export declare const enrichedItemStatusEnum: import("drizzle-orm/pg-core").PgEnum<["ok", "collision", "manual_override"]>;
-export declare const collisionStatusEnum: import("drizzle-orm/pg-core").PgEnum<["detected", "pending_review", "resolved", "dismissed"]>;
+export declare const collisionStatusEnum: import("drizzle-orm/pg-core").PgEnum<["detected", "pending_review", "resolved", "dismissed", "ignored"]>;
 export declare const exportStatusEnum: import("drizzle-orm/pg-core").PgEnum<["queued", "generating", "ready", "expired", "failed"]>;
+export declare const seoTaskStatusEnum: import("drizzle-orm/pg-core").PgEnum<["queued", "running", "completed", "failed", "paused"]>;
 export declare const organizations: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "organizations";
     schema: undefined;
@@ -986,11 +987,11 @@ export declare const uploadJobs: import("drizzle-orm/pg-core").PgTableWithColumn
             tableName: "upload_jobs";
             dataType: "string";
             columnType: "PgEnumColumn";
-            data: "pending" | "parsing" | "parsed" | "schema_draft" | "schema_review" | "schema_confirmed" | "enriching" | "enriched" | "needs_collision_review" | "ready" | "exporting" | "done" | "failed";
+            data: "pending" | "parsing" | "parsed" | "schema_draft" | "schema_review" | "schema_confirmed" | "enriching" | "enriched" | "needs_collision_review" | "ready" | "exporting" | "done" | "failed" | "paused";
             driverParam: string;
             notNull: true;
             hasDefault: true;
-            enumValues: ["pending", "parsing", "parsed", "schema_draft", "schema_review", "schema_confirmed", "enriching", "enriched", "needs_collision_review", "ready", "exporting", "done", "failed"];
+            enumValues: ["pending", "parsing", "parsed", "schema_draft", "schema_review", "schema_confirmed", "enriching", "enriched", "needs_collision_review", "ready", "exporting", "done", "failed", "paused"];
             baseColumn: never;
         }, {}, {}>;
         s3Key: import("drizzle-orm/pg-core").PgColumn<{
@@ -1137,11 +1138,11 @@ export declare const seoTasks: import("drizzle-orm/pg-core").PgTableWithColumns<
             tableName: "seo_tasks";
             dataType: "string";
             columnType: "PgEnumColumn";
-            data: "failed" | "queued" | "running" | "completed";
+            data: "failed" | "paused" | "queued" | "running" | "completed";
             driverParam: string;
             notNull: true;
             hasDefault: true;
-            enumValues: ["queued", "running", "completed", "failed"];
+            enumValues: ["queued", "running", "completed", "failed", "paused"];
             baseColumn: never;
         }, {}, {}>;
         lang: import("drizzle-orm/pg-core").PgColumn<{
@@ -1994,11 +1995,11 @@ export declare const enrichmentRuns: import("drizzle-orm/pg-core").PgTableWithCo
             tableName: "enrichment_runs";
             dataType: "string";
             columnType: "PgEnumColumn";
-            data: "failed" | "queued" | "running" | "completed";
+            data: "failed" | "paused" | "queued" | "running" | "completed";
             driverParam: string;
             notNull: true;
             hasDefault: true;
-            enumValues: ["queued", "running", "completed", "failed"];
+            enumValues: ["queued", "running", "completed", "failed", "paused"];
             baseColumn: never;
         }, {}, {}>;
         totalItems: import("drizzle-orm/pg-core").PgColumn<{
@@ -2356,11 +2357,11 @@ export declare const collisions: import("drizzle-orm/pg-core").PgTableWithColumn
             tableName: "collisions";
             dataType: "string";
             columnType: "PgEnumColumn";
-            data: "detected" | "pending_review" | "resolved" | "dismissed";
+            data: "detected" | "pending_review" | "resolved" | "dismissed" | "ignored";
             driverParam: string;
             notNull: true;
             hasDefault: true;
-            enumValues: ["detected", "pending_review", "resolved", "dismissed"];
+            enumValues: ["detected", "pending_review", "resolved", "dismissed", "ignored"];
             baseColumn: never;
         }, {}, {}>;
         resolvedBy: import("drizzle-orm/pg-core").PgColumn<{

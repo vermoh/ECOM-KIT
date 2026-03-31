@@ -25,13 +25,7 @@ fastify.setErrorHandler(function (error, request, reply) {
 });
 const guards_js_1 = require("./guards.js");
 const shared_db_1 = require("@ecom-kit/shared-db");
-const postgres_js_1 = require("drizzle-orm/postgres-js");
-const postgres_1 = __importDefault(require("postgres"));
-const drizzle_orm_1 = require("drizzle-orm");
 const node_crypto_1 = __importDefault(require("node:crypto"));
-const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
-const client = (0, postgres_1.default)(connectionString);
-const db = (0, postgres_js_1.drizzle)(client);
 fastify.addHook('onRequest', async (request, reply) => {
     if (request.url === '/health' || request.url.startsWith('/api/v1/auth') || request.url === '/api/v1/grants/verify')
         return;
@@ -54,7 +48,7 @@ fastify.addHook('onRequest', async (request, reply) => {
             return;
         }
         const tokenHash = node_crypto_1.default.createHash('sha256').update(token).digest('hex');
-        const [grant] = await db.select().from(shared_db_1.accessGrants).where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(shared_db_1.accessGrants.tokenHash, tokenHash), (0, drizzle_orm_1.isNull)(shared_db_1.accessGrants.revokedAt))).limit(1);
+        const [grant] = await shared_db_1.db.select().from(shared_db_1.accessGrants).where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.accessGrants.tokenHash, tokenHash), (0, shared_db_1.isNull)(shared_db_1.accessGrants.revokedAt))).limit(1);
         if (grant && grant.expiresAt > new Date()) {
             request.userSession = {
                 userId: `service:${grant.serviceId}`,

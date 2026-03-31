@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { db, uploadJobs, projects, eq, and, withTenant } from '@ecom-kit/shared-db';
+import { db, uploadJobs, projects, enrichmentRuns, eq, and, withTenant } from '@ecom-kit/shared-db';
 import { hasPermission } from '@ecom-kit/shared-auth';
 import { s3Client, BUCKET_NAME } from '../lib/s3';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
@@ -143,11 +143,16 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: 'Job already in progress or completed' });
     }
 
+    // Extract bearer token from header to pass as access grant
+    const authHeader = request.headers.authorization;
+    const accessGrantToken = authHeader?.replace('Bearer ', '');
+
     // Add to parsing queue
     await csvParsingQueue.add('csv-parsing', {
       uploadJobId: job.id,
       orgId: session.orgId,
-      s3Key: job.s3Key
+      s3Key: job.s3Key,
+      accessGrantToken
     });
 
     // Update status to pending (redundant but sets updatedAt)

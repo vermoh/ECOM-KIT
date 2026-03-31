@@ -6,7 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { DRIZZLE } from '../db/db.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '@ecom-kit/shared-db';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull } from '@ecom-kit/shared-db';
 import * as crypto from 'node:crypto';
 
 @Injectable()

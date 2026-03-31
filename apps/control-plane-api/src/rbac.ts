@@ -1,4 +1,4 @@
-import { eq, and, isNull, SQL } from 'drizzle-orm';
+import { eq, and, isNull, SQL } from '@ecom-kit/shared-db';
 import { 
   memberships, 
   roles, 

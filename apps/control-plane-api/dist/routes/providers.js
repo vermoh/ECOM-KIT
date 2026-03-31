@@ -1,34 +1,26 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.providerRoutes = providerRoutes;
-const drizzle_orm_1 = require("drizzle-orm");
 const shared_db_1 = require("@ecom-kit/shared-db");
-const postgres_js_1 = require("drizzle-orm/postgres-js");
-const postgres_1 = __importDefault(require("postgres"));
+const shared_db_2 = require("@ecom-kit/shared-db");
 const guards_js_1 = require("../guards.js");
 const shared_auth_1 = require("@ecom-kit/shared-auth");
-const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
-const client = (0, postgres_1.default)(connectionString);
-const db = (0, postgres_js_1.drizzle)(client);
 const MASTER_KEY = process.env.ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 async function providerRoutes(fastify) {
     fastify.get('/', {
         preHandler: [(0, guards_js_1.requirePermission)('secret:read_hint')]
     }, async (request, reply) => {
         const session = request.userSession;
-        const configs = await db.select({
-            id: shared_db_1.providerConfigs.id,
-            orgId: shared_db_1.providerConfigs.orgId,
-            provider: shared_db_1.providerConfigs.provider,
-            keyHint: shared_db_1.providerConfigs.keyHint,
-            rotatedAt: shared_db_1.providerConfigs.rotatedAt,
-            createdAt: shared_db_1.providerConfigs.createdAt
+        const configs = await shared_db_1.db.select({
+            id: shared_db_2.providerConfigs.id,
+            orgId: shared_db_2.providerConfigs.orgId,
+            provider: shared_db_2.providerConfigs.provider,
+            keyHint: shared_db_2.providerConfigs.keyHint,
+            rotatedAt: shared_db_2.providerConfigs.rotatedAt,
+            createdAt: shared_db_2.providerConfigs.createdAt
         })
-            .from(shared_db_1.providerConfigs)
-            .where((0, drizzle_orm_1.eq)(shared_db_1.providerConfigs.orgId, session.orgId));
+            .from(shared_db_2.providerConfigs)
+            .where((0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, session.orgId));
         return configs;
     });
     fastify.post('/', {
@@ -41,18 +33,18 @@ async function providerRoutes(fastify) {
         }
         const encryptedValue = (0, shared_auth_1.encrypt)(value, MASTER_KEY);
         const keyHint = value.slice(-4);
-        const [newConfig] = await db.insert(shared_db_1.providerConfigs).values({
+        const [newConfig] = await shared_db_1.db.insert(shared_db_2.providerConfigs).values({
             orgId: session.orgId,
             provider,
             encryptedValue,
             keyHint,
             createdBy: session.userId,
         }).returning({
-            id: shared_db_1.providerConfigs.id,
-            provider: shared_db_1.providerConfigs.provider,
-            keyHint: shared_db_1.providerConfigs.keyHint
+            id: shared_db_2.providerConfigs.id,
+            provider: shared_db_2.providerConfigs.provider,
+            keyHint: shared_db_2.providerConfigs.keyHint
         });
-        await db.insert(shared_db_1.auditLogs).values({
+        await shared_db_1.db.insert(shared_db_2.auditLogs).values({
             orgId: session.orgId,
             userId: session.userId,
             action: 'secret.create',
@@ -73,22 +65,22 @@ async function providerRoutes(fastify) {
         }
         const encryptedValue = (0, shared_auth_1.encrypt)(value, MASTER_KEY);
         const keyHint = value.slice(-4);
-        const [updated] = await db.update(shared_db_1.providerConfigs)
+        const [updated] = await shared_db_1.db.update(shared_db_2.providerConfigs)
             .set({
             encryptedValue,
             keyHint,
             rotatedAt: new Date(),
         })
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(shared_db_1.providerConfigs.id, id), (0, drizzle_orm_1.eq)(shared_db_1.providerConfigs.orgId, session.orgId)))
+            .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.providerConfigs.id, id), (0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, session.orgId)))
             .returning({
-            id: shared_db_1.providerConfigs.id,
-            provider: shared_db_1.providerConfigs.provider,
-            keyHint: shared_db_1.providerConfigs.keyHint
+            id: shared_db_2.providerConfigs.id,
+            provider: shared_db_2.providerConfigs.provider,
+            keyHint: shared_db_2.providerConfigs.keyHint
         });
         if (!updated) {
             return reply.status(404).send({ error: 'NOT_FOUND' });
         }
-        await db.insert(shared_db_1.auditLogs).values({
+        await shared_db_1.db.insert(shared_db_2.auditLogs).values({
             orgId: session.orgId,
             userId: session.userId,
             action: 'secret.rotate',
@@ -103,13 +95,13 @@ async function providerRoutes(fastify) {
     }, async (request, reply) => {
         const session = request.userSession;
         const { id } = request.params;
-        const [deleted] = await db.delete(shared_db_1.providerConfigs)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(shared_db_1.providerConfigs.id, id), (0, drizzle_orm_1.eq)(shared_db_1.providerConfigs.orgId, session.orgId)))
+        const [deleted] = await shared_db_1.db.delete(shared_db_2.providerConfigs)
+            .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.providerConfigs.id, id), (0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, session.orgId)))
             .returning();
         if (!deleted) {
             return reply.status(404).send({ error: 'NOT_FOUND' });
         }
-        await db.insert(shared_db_1.auditLogs).values({
+        await shared_db_1.db.insert(shared_db_2.auditLogs).values({
             orgId: session.orgId,
             userId: session.userId,
             action: 'secret.delete',
@@ -123,9 +115,9 @@ async function providerRoutes(fastify) {
     }, async (request, reply) => {
         const session = request.userSession;
         const { provider } = request.params;
-        const [config] = await db.select()
-            .from(shared_db_1.providerConfigs)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(shared_db_1.providerConfigs.orgId, session.orgId), (0, drizzle_orm_1.eq)(shared_db_1.providerConfigs.provider, provider)))
+        const [config] = await shared_db_1.db.select()
+            .from(shared_db_2.providerConfigs)
+            .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, session.orgId), (0, shared_db_1.eq)(shared_db_2.providerConfigs.provider, provider)))
             .limit(1);
         if (!config) {
             return reply.status(404).send({ error: 'CONFIG_NOT_FOUND' });

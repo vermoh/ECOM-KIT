@@ -3,7 +3,7 @@ import { Observable } from 'rxjs';
 import { DRIZZLE } from '../db/db.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '@ecom-kit/shared-db';
-import { eq } from 'drizzle-orm';
+import { eq } from '@ecom-kit/shared-db';
 
 @Injectable()
 export class TenantInterceptor implements NestInterceptor {

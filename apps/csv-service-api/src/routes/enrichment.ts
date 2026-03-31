@@ -5,7 +5,7 @@ import { enrichmentQueue } from '../lib/queue';
 import IORedis from 'ioredis';
 import { Queue } from 'bullmq';
 
-const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:8080';
+const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:4000';
 const SERVICE_TOKEN = process.env.CSV_SERVICE_TOKEN || 'csv-service-shared-secret';
 
 export async function enrichmentRoutes(fastify: FastifyInstance) {
@@ -57,7 +57,7 @@ export async function enrichmentRoutes(fastify: FastifyInstance) {
     // 2.5 Issue AccessGrant for the worker
     let accessGrantToken: string | undefined;
     try {
-      const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue`, {
+      const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue-internal`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -65,12 +65,17 @@ export async function enrichmentRoutes(fastify: FastifyInstance) {
         },
         body: JSON.stringify({
           serviceSlug: 'csv-service-worker',
-          scopes: ['secret:read', 'enrichment:write']
+          scopes: ['secret:read', 'enrichment:write'],
+          orgId: session.orgId
         })
       });
       if (grantRes.ok) {
         const grantData = await grantRes.json() as any;
         accessGrantToken = grantData.token;
+        console.log('[Enrichment] AccessGrant issued successfully');
+      } else {
+        const errBody = await grantRes.text();
+        console.error(`[Enrichment] Failed to issue AccessGrant: ${grantRes.status} ${errBody}`);
       }
     } catch (err) {
       console.error('[Enrichment] Failed to issue AccessGrant:', err);
@@ -186,7 +191,7 @@ export async function enrichmentRoutes(fastify: FastifyInstance) {
     // 4. Issue AccessGrant for the worker (ADR-003)
     let accessGrantToken: string | undefined;
     try {
-      const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue`, {
+      const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue-internal`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -194,12 +199,17 @@ export async function enrichmentRoutes(fastify: FastifyInstance) {
         },
         body: JSON.stringify({
           serviceSlug: 'csv-service-worker',
-          scopes: ['secret:read', 'seo:write']
+          scopes: ['secret:read', 'seo:write'],
+          orgId: session.orgId
         })
       });
       if (grantRes.ok) {
         const grantData = await grantRes.json() as any;
         accessGrantToken = grantData.token;
+        console.log('[SEO] AccessGrant issued successfully');
+      } else {
+        const errBody = await grantRes.text();
+        console.error(`[SEO] Failed to issue AccessGrant: ${grantRes.status} ${errBody}`);
       }
     } catch (err) {
       console.error('[SEO] Failed to issue AccessGrant:', err);

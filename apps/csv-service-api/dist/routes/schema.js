@@ -113,23 +113,39 @@ async function schemaRoutes(fastify) {
     fastify.post('/uploads/:id/schema/reject', async (request, reply) => {
         const session = request.userSession;
         const { id } = request.params;
+        const { reason } = request.body || {};
         if (!(0, shared_auth_1.hasPermission)(session, 'schema:reject')) {
             return reply.status(403).send({ error: 'PERMISSION_DENIED' });
         }
+        // Verify the upload job exists and belongs to this tenant
+        const job = await shared_db_1.db.query.uploadJobs.findFirst({
+            where: (0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, id), (0, shared_db_1.eq)(shared_db_1.uploadJobs.orgId, session.orgId))
+        });
+        if (!job) {
+            return reply.status(404).send({ error: 'JOB_NOT_FOUND' });
+        }
         await (0, shared_db_1.withTenant)(session.orgId, async (tx) => {
+            // Strict tenant isolation: filter by BOTH jobId AND orgId
             await tx.update(shared_db_1.schemaTemplates)
                 .set({ status: 'rejected' })
-                .where((0, shared_db_1.eq)(shared_db_1.schemaTemplates.jobId, id));
+                .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.schemaTemplates.jobId, id), (0, shared_db_1.eq)(shared_db_1.schemaTemplates.orgId, session.orgId)));
+            // Revert UploadJob back to schema_draft so schema can be regenerated
             await tx.update(shared_db_1.uploadJobs)
-                .set({ status: 'schema_draft' })
-                .where((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, id));
-            // Audit Log
+                .set({ status: 'schema_draft', updatedAt: new Date() })
+                .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, id), (0, shared_db_1.eq)(shared_db_1.uploadJobs.orgId, session.orgId)));
+            // Mark the pending review task as skipped so a new one can be created
+            await tx.update(shared_db_1.reviewTasks)
+                .set({ status: 'skipped', completedAt: new Date() })
+                .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.reviewTasks.jobId, id), (0, shared_db_1.eq)(shared_db_1.reviewTasks.taskType, 'schema_review'), (0, shared_db_1.eq)(shared_db_1.reviewTasks.status, 'pending')));
+            // Audit Log — required for human checkpoint per csv_pipeline.md
             await tx.insert(shared_db_1.auditLogs).values({
                 orgId: session.orgId,
                 userId: session.userId,
+                actorType: 'user',
                 action: 'schema.reject',
                 resourceType: 'upload_job',
                 resourceId: id,
+                payload: JSON.stringify({ reason: reason || null }),
             });
         });
         return { success: true };

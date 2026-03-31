@@ -68,14 +68,19 @@ async function collisionsRoutes(fastify) {
                 resourceId: collision.id,
                 payload: JSON.stringify({ field: collision.field, resolvedValue }),
             });
-            // 4. Check if all collisions for this job are resolved
+            // 4. Check if all collisions for this job are resolved/dismissed
+            // Per state_machines.md: count both 'detected' and 'pending_review' as open
             const [remaining] = await tx.select({ value: (0, shared_db_1.count)() })
                 .from(shared_db_1.collisions)
-                .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.collisions.jobId, collision.jobId), (0, shared_db_1.eq)(shared_db_1.collisions.status, 'detected')));
+                .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.collisions.jobId, collision.jobId), (0, shared_db_1.eq)(shared_db_1.collisions.orgId, session.orgId), (0, shared_db_1.or)((0, shared_db_1.eq)(shared_db_1.collisions.status, 'detected'), (0, shared_db_1.eq)(shared_db_1.collisions.status, 'pending_review'))));
             if (remaining.value === 0) {
+                // Complete collision review task
+                await tx.update(shared_db_1.reviewTasks)
+                    .set({ status: 'completed', completedBy: session.userId, completedAt: new Date() })
+                    .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.reviewTasks.jobId, collision.jobId), (0, shared_db_1.eq)(shared_db_1.reviewTasks.taskType, 'collision_review'), (0, shared_db_1.eq)(shared_db_1.reviewTasks.status, 'pending')));
                 await tx.update(shared_db_1.uploadJobs)
                     .set({ status: 'ready', updatedAt: new Date() })
-                    .where((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, collision.jobId));
+                    .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, collision.jobId), (0, shared_db_1.eq)(shared_db_1.uploadJobs.orgId, session.orgId)));
             }
         });
         return { success: true };
@@ -94,30 +99,37 @@ async function collisionsRoutes(fastify) {
             return reply.status(404).send({ error: 'Collision not found' });
         }
         await (0, shared_db_1.withTenant)(session.orgId, async (tx) => {
+            // Canonical model: dismiss → 'ignored' (not 'dismissed')
             await tx.update(shared_db_1.collisions)
                 .set({
-                status: 'dismissed',
+                status: 'ignored',
                 resolvedBy: session.userId,
                 resolvedAt: new Date()
             })
-                .where((0, shared_db_1.eq)(shared_db_1.collisions.id, id));
+                .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.collisions.id, id), (0, shared_db_1.eq)(shared_db_1.collisions.orgId, session.orgId)));
             // Audit Log
             await tx.insert(shared_db_1.auditLogs).values({
                 orgId: session.orgId,
                 userId: session.userId,
-                action: 'collision_dismissed',
+                actorType: 'user',
+                action: 'collision.dismissed',
                 resourceType: 'collision',
                 resourceId: collision.id,
                 payload: JSON.stringify({ field: collision.field }),
             });
-            // Check if all collisions for this job are resolved/dismissed
+            // Check if all open collisions for this job are resolved/ignored
+            // Per state_machines.md: count 'detected' and 'pending_review' as still open
             const [remaining] = await tx.select({ value: (0, shared_db_1.count)() })
                 .from(shared_db_1.collisions)
-                .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.collisions.jobId, collision.jobId), (0, shared_db_1.eq)(shared_db_1.collisions.status, 'detected')));
+                .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.collisions.jobId, collision.jobId), (0, shared_db_1.eq)(shared_db_1.collisions.orgId, session.orgId), (0, shared_db_1.or)((0, shared_db_1.eq)(shared_db_1.collisions.status, 'detected'), (0, shared_db_1.eq)(shared_db_1.collisions.status, 'pending_review'))));
             if (remaining.value === 0) {
+                // Complete collision review task
+                await tx.update(shared_db_1.reviewTasks)
+                    .set({ status: 'completed', completedBy: session.userId, completedAt: new Date() })
+                    .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.reviewTasks.jobId, collision.jobId), (0, shared_db_1.eq)(shared_db_1.reviewTasks.taskType, 'collision_review'), (0, shared_db_1.eq)(shared_db_1.reviewTasks.status, 'pending')));
                 await tx.update(shared_db_1.uploadJobs)
                     .set({ status: 'ready', updatedAt: new Date() })
-                    .where((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, collision.jobId));
+                    .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, collision.jobId), (0, shared_db_1.eq)(shared_db_1.uploadJobs.orgId, session.orgId)));
             }
         });
         return { success: true };

@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { verifyToken } from '@ecom-kit/shared-auth';
 import { UserSession } from '@ecom-kit/shared-types';
 import fastifyRedis from '@fastify/redis';
+import cors from '@fastify/cors';
 import metricsPlugin from 'fastify-metrics';
 import { authRoutes } from './routes/auth.js';
 
@@ -14,6 +15,12 @@ declare module 'fastify' {
     userSession?: UserSession;
   }
 }
+
+// CORS — allow web app origin
+fastify.register(cors, {
+  origin: process.env.WEB_ORIGIN || 'http://localhost:3000',
+  credentials: true,
+});
 
 // Global Error Handler
 fastify.setErrorHandler(function (error, request, reply) {
@@ -29,15 +36,8 @@ fastify.setErrorHandler(function (error, request, reply) {
 
 import { checkOrgStatus, checkTemporalAccess } from './guards.js';
 
-import { accessGrants } from '@ecom-kit/shared-db';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-import { eq, and, isNull } from 'drizzle-orm';
+import { accessGrants, db, eq, and, isNull } from '@ecom-kit/shared-db';
 import crypto from 'node:crypto';
-
-const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
-const client = postgres(connectionString);
-const db = drizzle(client);
 
 // Auth Guard Hook
 fastify.addHook('onRequest', async (request, reply) => {
@@ -127,7 +127,7 @@ fastify.get('/api/v1/protected', async (request, reply) => {
 
 const start = async () => {
   try {
-    await fastify.listen({ port: parseInt(process.env.PORT || '8080'), host: '0.0.0.0' });
+    await fastify.listen({ port: parseInt(process.env.PORT || '4000'), host: '0.0.0.0' });
 
   } catch (err) {
     fastify.log.error(err);

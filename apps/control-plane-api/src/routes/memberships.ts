@@ -1,13 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, db } from '@ecom-kit/shared-db';
 import { users, memberships, roles, auditLogs } from '@ecom-kit/shared-db';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
 import { requirePermission } from '../guards.js';
-
-const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
-const client = postgres(connectionString);
-const db = drizzle(client);
 
 export async function membershipRoutes(fastify: FastifyInstance) {
   

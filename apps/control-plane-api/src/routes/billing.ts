@@ -1,14 +1,8 @@
 import { FastifyInstance } from 'fastify';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, db } from '@ecom-kit/shared-db';
 import { tokenBudgets, tokenUsageLogs, auditLogs, organizations } from '@ecom-kit/shared-db';
 import * as schema from '@ecom-kit/shared-db';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
 import { requirePermission } from '../guards.js';
-
-const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
-const client = postgres(connectionString);
-const db = drizzle(client, { schema });
 
 export async function billingRoutes(fastify: FastifyInstance) {
   

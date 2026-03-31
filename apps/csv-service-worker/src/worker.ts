@@ -52,7 +52,7 @@ metricsServer.listen(METRICS_PORT, () => {
   console.log(`[Metrics] Worker metrics server listening on port ${METRICS_PORT}`);
 });
 
-const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:8080';
+const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:4000';
 
 async function getProviderKey(provider: string, grantToken: string): Promise<string> {
     const res = await fetch(`${CP_URL}/api/v1/providers/key/${provider}`, {
@@ -236,16 +236,32 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
       }).returning();
 
       for (let i = 0; i < suggestedFields.length; i++) {
-        const field = suggestedFields[i];
+        const raw = suggestedFields[i];
+
+        // Normalize: AI may return different key names (field_name, fieldName, etc.)
+        const rawName: string | undefined =
+          raw.name ?? raw.field_name ?? raw.fieldName ?? raw.key ?? raw.column;
+        const fieldName = rawName
+          ? String(rawName).toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+|_+$/g, '') || null
+          : null;
+
+        if (!fieldName) {
+          console.warn(`[Schema] Skipping field at index ${i} — missing name:`, raw);
+          continue;
+        }
+
+        const fieldType = raw.field_type ?? raw.fieldType ?? raw.type ?? 'text';
+        const label = raw.label ?? raw.display_name ?? raw.displayName ?? fieldName;
+
         await tx.insert(schemaFields).values({
           orgId,
           schemaId: template.id,
-          name: field.name,
-          label: field.label,
-          fieldType: field.field_type as any,
-          isRequired: field.is_required || false,
-          allowedValues: field.allowed_values,
-          description: field.description,
+          name: fieldName,
+          label: String(label),
+          fieldType: fieldType as any,
+          isRequired: raw.is_required ?? raw.isRequired ?? false,
+          allowedValues: raw.allowed_values ?? raw.allowedValues ?? [],
+          description: raw.description ?? null,
           sortOrder: i,
         });
       }
@@ -267,6 +283,15 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
     console.log(`[Schema] Schema draft created for job ${uploadJobId}, awaiting schema review.`);
   } catch (error: any) {
     console.error(`[Schema] Job ${uploadJobId} failed:`, error);
+    try {
+      await withTenant(orgId, async (tx) => {
+        await tx.update(uploadJobs)
+          .set({ status: 'failed', errorDetails: error.message || 'Unknown Schema Generation Error', updatedAt: new Date() })
+          .where(eq(uploadJobs.id, uploadJobId));
+      });
+    } catch (dbErr) {
+      console.error('[Schema] Failed to update job status to failed:', dbErr);
+    }
     throw error;
   }
 }
@@ -313,8 +338,13 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
     // 2. Download CSV
     const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
     const response = await s3Client.send(command);
-    const parser = (response.Body as Readable).pipe(parse({ columns: true, skip_empty_lines: true }));
+    if (!response.Body) throw new Error('Empty S3 body');
 
+    const csvContent = await (response.Body as any).transformToString();
+    console.log(`[Enrichment] CSV Content retrieved: ${csvContent.length} bytes`);
+
+    const parser = parse(csvContent, { columns: true, skip_empty_lines: true });
+    
     let totalTokens = 0;
     let processedCount = 0;
     let collisionCount = 0;
@@ -342,6 +372,7 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
 
     // 3. Process rows
     for await (const row of parser) {
+      console.log(`[Enrichment] Processing row ${processedCount + 1}: ${JSON.stringify(row).slice(0, 50)}`);
       try {
         const { enrichedData, confidence, tokensUsed } = await enrichItem(
           row,
@@ -386,6 +417,7 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
         await withTenant(orgId, async (tx) => {
           const [item] = await tx.insert(enrichedItems).values({
             orgId,
+            uploadId: uploadJobId,
             runId: enrichmentRunId,
             skuExternalId: row.sku || row.id || `row-${processedCount}`,
             rawData: JSON.stringify(row),
@@ -649,19 +681,32 @@ export async function processExportJob(job: Job<ExportJobData>) {
       orderBy: (items, { asc }) => [asc(items.createdAt)]
     });
 
-    // 3. Generate CSV
-    const headers = ['sku', ...schema.fields.map(f => f.name)];
+    // 3. Build headers: original CSV columns + schema enriched field names (deduplicated)
+    // This ensures original data is always present even when AI enrichment is partial.
+    const rawColumnsSet = new Set<string>();
+    items.forEach(item => {
+      const raw = JSON.parse(item.rawData || '{}');
+      Object.keys(raw).forEach(k => rawColumnsSet.add(k));
+    });
+    const schemaFieldNames = schema.fields.map(f => f.name);
+    // Original columns first, then schema-only enriched fields not already present
+    const allColumns = [
+      ...Array.from(rawColumnsSet),
+      ...schemaFieldNames.filter(n => !rawColumnsSet.has(n))
+    ];
+    const headers = [...allColumns];
     if (includeSeo) {
       headers.push('seo_title', 'seo_description', 'seo_keywords');
     }
 
     const csvRows = items.map(item => {
+      const raw = JSON.parse(item.rawData || '{}');
       const enriched = JSON.parse(item.enrichedData || '{}');
-      const row: any = {
-        sku: item.skuExternalId,
-      };
-      schema.fields.forEach(f => {
-        row[f.name] = enriched[f.name] || '';
+      // Merge: raw data first as fallback, enriched values override raw
+      const merged = { ...raw, ...enriched };
+      const row: any = {};
+      allColumns.forEach(col => {
+        row[col] = merged[col] ?? '';
       });
       if (includeSeo) {
         row['seo_title'] = enriched['seo_title'] || '';

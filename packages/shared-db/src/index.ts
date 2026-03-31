@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import * as schema from './schema';
-export { eq, and, or, desc, asc, sql, count } from 'drizzle-orm';
+import * as schema from './schema.js';
+export { eq, and, or, desc, asc, sql, count, isNull, inArray, type SQL } from 'drizzle-orm';
 import { sql as drizzleSql } from 'drizzle-orm';
 
 const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
@@ -11,7 +11,7 @@ export const connection = postgres(connectionString);
 export const db = drizzle(connection, { schema });
 
 // Export all schema tables
-export * from './schema';
+export * from './schema.js';
 
 // Helper to set tenant context for a transaction
 export async function withTenant<T>(

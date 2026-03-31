@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -19,6 +52,52 @@ const csv_parse_1 = require("csv-parse");
 const sync_1 = require("csv-stringify/sync");
 const ai_1 = require("./lib/ai");
 const budget_1 = require("./lib/budget");
+const client = __importStar(require("prom-client"));
+const node_http_1 = __importDefault(require("node:http"));
+// Prometheus setup
+const register = new client.Registry();
+client.collectDefaultMetrics({ register });
+const jobsProcessedCounter = new client.Counter({
+    name: 'csv_worker_jobs_processed_total',
+    help: 'Total number of jobs processed',
+    labelNames: ['type', 'status'],
+});
+const itemsEnrichedCounter = new client.Counter({
+    name: 'csv_worker_items_enriched_total',
+    help: 'Total number of items enriched',
+});
+const tokensConsumedCounter = new client.Counter({
+    name: 'csv_worker_tokens_consumed_total',
+    help: 'Total AI tokens consumed',
+});
+register.registerMetric(jobsProcessedCounter);
+register.registerMetric(itemsEnrichedCounter);
+register.registerMetric(tokensConsumedCounter);
+// Metrics server
+const metricsServer = node_http_1.default.createServer(async (req, res) => {
+    if (req.url === '/metrics') {
+        res.setHeader('Content-Type', register.contentType);
+        res.end(await register.metrics());
+    }
+    else {
+        res.statusCode = 404;
+        res.end();
+    }
+});
+const METRICS_PORT = process.env.METRICS_PORT || 9090;
+metricsServer.listen(METRICS_PORT, () => {
+    console.log(`[Metrics] Worker metrics server listening on port ${METRICS_PORT}`);
+});
+const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:8080';
+async function getProviderKey(provider, grantToken) {
+    const res = await fetch(`${CP_URL}/api/v1/providers/key/${provider}`, {
+        headers: { 'Authorization': `Bearer ${grantToken}` }
+    });
+    if (!res.ok)
+        throw new Error(`[Auth] Failed to fetch provider key: ${res.statusText}`);
+    const data = await res.json();
+    return data.value;
+}
 const redisConnection = new ioredis_1.default(process.env.REDIS_URL || 'redis://localhost:6379', {
     maxRetriesPerRequest: null,
 });
@@ -29,9 +108,18 @@ exports.EXPORT_QUEUE = 'export';
 exports.SEO_GENERATION_QUEUE = 'seo-generation';
 exports.generateSchemaQueue = new bullmq_1.Queue(exports.GENERATE_SCHEMA_QUEUE, {
     connection: redisConnection,
+    // ADR-004: default retry policy for schema generation jobs (AI calls may transiently fail)
+    defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10000 },
+    },
 });
 exports.seoGenerationQueue = new bullmq_1.Queue(exports.SEO_GENERATION_QUEUE, {
     connection: redisConnection,
+    defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10000 },
+    },
 });
 async function processParsingJob(job) {
     const { uploadJobId, orgId, s3Key } = job.data;
@@ -60,7 +148,12 @@ async function processParsingJob(job) {
                 .where((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, uploadJobId));
         });
         // Chain Schema Generation
-        await exports.generateSchemaQueue.add('generate-schema', { uploadJobId, orgId, s3Key });
+        await exports.generateSchemaQueue.add('generate-schema', {
+            uploadJobId,
+            orgId,
+            s3Key,
+            accessGrantToken: job.data.accessGrantToken
+        });
         console.log(`[Parsing] Job ${uploadJobId} completed. Rows: ${rowCount}`);
     }
     catch (error) {
@@ -92,14 +185,23 @@ async function processSchemaJob(job) {
             sampleRows.push(row);
         }
         const headers = Object.keys(sampleRows[0] || {});
-        // 2. Mock API Key for now (In real life, fetch from CP)
-        const mockApiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
+        // 2. Security: Fetch API key using AccessGrant
+        let apiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
+        if (job.data.accessGrantToken) {
+            try {
+                apiKey = await getProviderKey('openrouter', job.data.accessGrantToken);
+                console.log('[Schema] Using secured API key from Control Plane');
+            }
+            catch (err) {
+                console.error('[Schema] Failed to fetch secured key, falling back to env');
+            }
+        }
         // 2.5 Budget Check
         const hasBudget = await (0, budget_1.checkBudget)(orgId, 10); // Assume 10 tokens for schema
         if (!hasBudget)
             throw new Error('OUT_OF_BUDGET: Not enough tokens for schema generation');
         // 3. Call AI
-        const suggestedFields = await (0, ai_1.generateSchemaSuggestion)(headers, sampleRows, mockApiKey);
+        const suggestedFields = await (0, ai_1.generateSchemaSuggestion)(headers, sampleRows, apiKey);
         // In real scenario, AI returns tokens used, but here we assume a fix or track it if possible
         await (0, budget_1.consumeBudget)({ orgId, jobId: uploadJobId, tokensUsed: 10, model: 'gpt-3.5-turbo', purpose: 'schema_generation' });
         // 4. Save Schema
@@ -124,7 +226,11 @@ async function processSchemaJob(job) {
                     sortOrder: i,
                 });
             }
-            // 5. Create Review Task
+            // 5. Create Review Task — and set job status to schema_review so pipeline waits
+            // Gap 3 fix: UploadJob must pass through SCHEMA_REVIEW state per state_machines.md
+            await tx.update(shared_db_1.uploadJobs)
+                .set({ status: 'schema_review', updatedAt: new Date() })
+                .where((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, uploadJobId));
             await tx.insert(shared_db_1.reviewTasks).values({
                 orgId,
                 jobId: uploadJobId,
@@ -132,7 +238,7 @@ async function processSchemaJob(job) {
                 status: 'pending',
             });
         });
-        console.log(`[Schema] Schema draft created for job ${uploadJobId}`);
+        console.log(`[Schema] Schema draft created for job ${uploadJobId}, awaiting schema review.`);
     }
     catch (error) {
         console.error(`[Schema] Job ${uploadJobId} failed:`, error);
@@ -171,23 +277,46 @@ async function processEnrichmentJob(job) {
         // 2. Download CSV
         const command = new client_s3_1.GetObjectCommand({ Bucket: s3_1.BUCKET_NAME, Key: s3Key });
         const response = await s3_1.s3Client.send(command);
-        const parser = response.Body.pipe((0, csv_parse_1.parse)({ columns: true, skip_empty_lines: true }));
+        if (!response.Body)
+            throw new Error('Empty S3 body');
+        const csvContent = await response.Body.transformToString();
+        console.log(`[Enrichment] CSV Content retrieved: ${csvContent.length} bytes`);
+        const parser = (0, csv_parse_1.parse)(csvContent, { columns: true, skip_empty_lines: true });
         let totalTokens = 0;
         let processedCount = 0;
         let collisionCount = 0;
-        const mockApiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
+        // 2. Security: Fetch API key using AccessGrant
+        let apiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
+        if (job.data.accessGrantToken) {
+            try {
+                apiKey = await getProviderKey('openrouter', job.data.accessGrantToken);
+                console.log('[Enrichment] Using secured API key from Control Plane');
+            }
+            catch (err) {
+                console.error('[Enrichment] Failed to fetch secured key, falling back to env');
+            }
+        }
         // 2.5 Global Budget Check (at least some buffer)
         if (!await (0, budget_1.checkBudget)(orgId, 100)) {
-            throw new Error('OUT_OF_BUDGET: Initial budget check failed');
+            // SaaS Readiness: Transition to PAUSED instead of just failing
+            await (0, shared_db_1.withTenant)(orgId, async (tx) => {
+                await tx.update(shared_db_1.enrichmentRuns).set({ status: 'paused', completedAt: new Date() }).where((0, shared_db_1.eq)(shared_db_1.enrichmentRuns.id, enrichmentRunId));
+                await tx.update(shared_db_1.uploadJobs).set({ status: 'paused', updatedAt: new Date() }).where((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, uploadJobId));
+            });
+            throw new Error('OUT_OF_BUDGET: Enrichment paused due to insufficient tokens');
         }
         // 3. Process rows
         for await (const row of parser) {
+            console.log(`[Enrichment] Processing row ${processedCount + 1}: ${JSON.stringify(row).slice(0, 50)}`);
             try {
-                const { enrichedData, confidence, tokensUsed } = await (0, ai_1.enrichItem)(row, run.template.fields, mockApiKey);
+                const { enrichedData, confidence, tokensUsed } = await (0, ai_1.enrichItem)(row, run.template.fields, apiKey);
                 totalTokens += tokensUsed;
                 processedCount++;
                 // Budget Consumption
                 await (0, budget_1.consumeBudget)({ orgId, jobId: uploadJobId, tokensUsed, model: 'gpt-3.5-turbo', purpose: 'enrichment' });
+                // Metrics
+                itemsEnrichedCounter.inc();
+                tokensConsumedCounter.inc(tokensUsed);
                 // Detect collisions
                 const rowCollisions = [];
                 // Check confidence
@@ -212,6 +341,7 @@ async function processEnrichmentJob(job) {
                 await (0, shared_db_1.withTenant)(orgId, async (tx) => {
                     const [item] = await tx.insert(shared_db_1.enrichedItems).values({
                         orgId,
+                        uploadId: uploadJobId,
                         runId: enrichmentRunId,
                         skuExternalId: row.sku || row.id || `row-${processedCount}`,
                         rawData: JSON.stringify(row),
@@ -287,6 +417,7 @@ async function processEnrichmentJob(job) {
                     enrichmentRunId,
                     orgId,
                     lang: 'ru',
+                    accessGrantToken: job.data.accessGrantToken
                 });
             }
         });
@@ -325,19 +456,36 @@ async function processSeoJob(job) {
         let processedCount = 0;
         // Budget check
         if (!await (0, budget_1.checkBudget)(orgId, 100)) {
-            throw new Error('OUT_OF_BUDGET: Initial budget check for SEO failed');
+            // SaaS Readiness: Transition to PAUSED
+            await (0, shared_db_1.withTenant)(orgId, async (tx) => {
+                await tx.update(shared_db_1.seoTasks).set({ status: 'paused', completedAt: new Date() }).where((0, shared_db_1.eq)(shared_db_1.seoTasks.id, seoTaskId));
+                await tx.update(shared_db_1.uploadJobs).set({ status: 'paused', updatedAt: new Date() }).where((0, shared_db_1.eq)(shared_db_1.uploadJobs.id, uploadJobId));
+            });
+            throw new Error('OUT_OF_BUDGET: SEO generation paused due to insufficient tokens');
         }
-        const mockApiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
+        // 2. Security: Fetch API key using AccessGrant
+        let apiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
+        if (job.data.accessGrantToken) {
+            try {
+                apiKey = await getProviderKey('openrouter', job.data.accessGrantToken);
+                console.log('[SEO] Using secured API key from Control Plane');
+            }
+            catch (err) {
+                console.error('[SEO] Failed to fetch secured key, falling back to env');
+            }
+        }
         for (const item of items) {
             try {
                 const itemData = JSON.parse(item.enrichedData || '{}');
                 const originalData = JSON.parse(item.rawData || '{}');
                 const combinedData = { ...originalData, ...itemData };
-                const { seoData, tokensUsed } = await (0, ai_1.generateSeoAttributes)(combinedData, lang, mockApiKey);
+                const { seoData, tokensUsed } = await (0, ai_1.generateSeoAttributes)(combinedData, lang, apiKey);
                 totalTokens += tokensUsed;
                 processedCount++;
                 // Budget Consumption
                 await (0, budget_1.consumeBudget)({ orgId, jobId: uploadJobId, tokensUsed, model: 'gpt-3.5-turbo', purpose: 'seo' });
+                // Metrics
+                tokensConsumedCounter.inc(tokensUsed);
                 const updatedEnrichedData = { ...itemData, ...seoData };
                 await (0, shared_db_1.withTenant)(orgId, async (tx) => {
                     await tx.update(shared_db_1.enrichedItems)

@@ -2,7 +2,7 @@ import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { DRIZZLE } from '../db/db.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '@ecom-kit/shared-db';
-import { eq } from 'drizzle-orm';
+import { eq } from '@ecom-kit/shared-db';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()

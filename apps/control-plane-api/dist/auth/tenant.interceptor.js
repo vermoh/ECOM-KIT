@@ -49,7 +49,7 @@ exports.TenantInterceptor = void 0;
 const common_1 = require("@nestjs/common");
 const db_module_1 = require("../db/db.module");
 const schema = __importStar(require("@ecom-kit/shared-db"));
-const drizzle_orm_1 = require("drizzle-orm");
+const shared_db_1 = require("@ecom-kit/shared-db");
 let TenantInterceptor = class TenantInterceptor {
     constructor(db) {
         this.db = db;
@@ -59,7 +59,7 @@ let TenantInterceptor = class TenantInterceptor {
         const user = request.user;
         if (user && user.orgId) {
             const org = await this.db.query.organizations.findFirst({
-                where: (0, drizzle_orm_1.eq)(schema.organizations.id, user.orgId),
+                where: (0, shared_db_1.eq)(schema.organizations.id, user.orgId),
             });
             if (!org || org.status !== 'active') {
                 throw new common_1.ForbiddenException('Organization is suspended or deleted');

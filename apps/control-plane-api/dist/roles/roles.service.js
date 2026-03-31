@@ -49,14 +49,14 @@ exports.RolesService = void 0;
 const common_1 = require("@nestjs/common");
 const db_module_1 = require("../db/db.module");
 const schema = __importStar(require("@ecom-kit/shared-db"));
-const drizzle_orm_1 = require("drizzle-orm");
+const shared_db_1 = require("@ecom-kit/shared-db");
 let RolesService = class RolesService {
     constructor(db) {
         this.db = db;
     }
     async findRoleWithPermissions(roleId) {
         const role = await this.db.query.roles.findFirst({
-            where: (0, drizzle_orm_1.eq)(schema.roles.id, roleId),
+            where: (0, shared_db_1.eq)(schema.roles.id, roleId),
             with: {}
         });
         const permissions = await this.db
@@ -65,8 +65,8 @@ let RolesService = class RolesService {
             action: schema.permissions.action,
         })
             .from(schema.rolePermissions)
-            .innerJoin(schema.permissions, (0, drizzle_orm_1.eq)(schema.rolePermissions.permissionId, schema.permissions.id))
-            .where((0, drizzle_orm_1.eq)(schema.rolePermissions.roleId, roleId));
+            .innerJoin(schema.permissions, (0, shared_db_1.eq)(schema.rolePermissions.permissionId, schema.permissions.id))
+            .where((0, shared_db_1.eq)(schema.rolePermissions.roleId, roleId));
         return {
             ...role,
             permissions: permissions.map(p => `${p.resource}:${p.action}`),
@@ -75,8 +75,8 @@ let RolesService = class RolesService {
     async getRoleByName(name, orgId) {
         return this.db.query.roles.findFirst({
             where: orgId
-                ? (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema.roles.name, name), (0, drizzle_orm_1.eq)(schema.roles.orgId, orgId))
-                : (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema.roles.name, name), (0, drizzle_orm_1.eq)(schema.roles.isSystem, true)),
+                ? (0, shared_db_1.and)((0, shared_db_1.eq)(schema.roles.name, name), (0, shared_db_1.eq)(schema.roles.orgId, orgId))
+                : (0, shared_db_1.and)((0, shared_db_1.eq)(schema.roles.name, name), (0, shared_db_1.eq)(schema.roles.isSystem, true)),
         });
     }
 };

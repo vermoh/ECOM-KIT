@@ -39,11 +39,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.db = exports.connection = exports.count = exports.sql = exports.asc = exports.desc = exports.or = exports.and = exports.eq = void 0;
+exports.db = exports.connection = exports.isNull = exports.count = exports.sql = exports.asc = exports.desc = exports.or = exports.and = exports.eq = void 0;
 exports.withTenant = withTenant;
 const postgres_js_1 = require("drizzle-orm/postgres-js");
 const postgres_1 = __importDefault(require("postgres"));
-const schema = __importStar(require("./schema"));
+const schema = __importStar(require("./schema.js"));
 var drizzle_orm_1 = require("drizzle-orm");
 Object.defineProperty(exports, "eq", { enumerable: true, get: function () { return drizzle_orm_1.eq; } });
 Object.defineProperty(exports, "and", { enumerable: true, get: function () { return drizzle_orm_1.and; } });
@@ -52,13 +52,14 @@ Object.defineProperty(exports, "desc", { enumerable: true, get: function () { re
 Object.defineProperty(exports, "asc", { enumerable: true, get: function () { return drizzle_orm_1.asc; } });
 Object.defineProperty(exports, "sql", { enumerable: true, get: function () { return drizzle_orm_1.sql; } });
 Object.defineProperty(exports, "count", { enumerable: true, get: function () { return drizzle_orm_1.count; } });
+Object.defineProperty(exports, "isNull", { enumerable: true, get: function () { return drizzle_orm_1.isNull; } });
 const drizzle_orm_2 = require("drizzle-orm");
 const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
 // Create a single connection pool for the application
 exports.connection = (0, postgres_1.default)(connectionString);
 exports.db = (0, postgres_js_1.drizzle)(exports.connection, { schema });
 // Export all schema tables
-__exportStar(require("./schema"), exports);
+__exportStar(require("./schema.js"), exports);
 // Helper to set tenant context for a transaction
 async function withTenant(orgId, callback) {
     return exports.db.transaction(async (tx) => {

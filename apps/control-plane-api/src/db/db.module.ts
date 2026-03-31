@@ -2,7 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import * as schema from '@ecom-kit/shared-db';
+import * as schema from '@ecom-kit/shared-db/src/schema';
 
 export const DRIZZLE = 'DRIZZLE';
 

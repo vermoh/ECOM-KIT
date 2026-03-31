@@ -1,4 +1,4 @@
-const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:8080';
+const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:4000';
 
 // In production, this would be a real AccessGrant token
 const SERVICE_TOKEN = process.env.CSV_SERVICE_TOKEN || 'csv-service-shared-secret';

@@ -10,12 +10,14 @@ interface CSVJobData {
     uploadJobId: string;
     orgId: string;
     s3Key: string;
+    accessGrantToken?: string;
 }
 interface EnrichmentJobData {
     enrichmentRunId: string;
     uploadJobId: string;
     orgId: string;
     s3Key: string;
+    accessGrantToken?: string;
 }
 interface SeoJobData {
     seoTaskId: string;
@@ -23,12 +25,14 @@ interface SeoJobData {
     enrichmentRunId: string;
     orgId: string;
     lang: string;
+    accessGrantToken?: string;
 }
 interface ExportJobData {
     exportJobId: string;
     uploadId: string;
     orgId: string;
     includeSeo: boolean;
+    accessGrantToken?: string;
 }
 export declare function processParsingJob(job: Job<CSVJobData>): Promise<void>;
 export declare const parsingWorker: Worker<CSVJobData, any, string>;
