@@ -6,10 +6,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const fastify_1 = __importDefault(require("fastify"));
 const shared_auth_1 = require("@ecom-kit/shared-auth");
 const redis_1 = __importDefault(require("@fastify/redis"));
+const cors_1 = __importDefault(require("@fastify/cors"));
 const fastify_metrics_1 = __importDefault(require("fastify-metrics"));
 const auth_js_1 = require("./routes/auth.js");
 const fastify = (0, fastify_1.default)({
     logger: true
+});
+fastify.register(cors_1.default, {
+    origin: process.env.WEB_ORIGIN || 'http://localhost:3000',
+    credentials: true,
 });
 fastify.setErrorHandler(function (error, request, reply) {
     this.log.error(error);
@@ -93,7 +98,7 @@ fastify.get('/api/v1/protected', async (request, reply) => {
 });
 const start = async () => {
     try {
-        await fastify.listen({ port: parseInt(process.env.PORT || '8080'), host: '0.0.0.0' });
+        await fastify.listen({ port: parseInt(process.env.PORT || '4000'), host: '0.0.0.0' });
     }
     catch (err) {
         fastify.log.error(err);

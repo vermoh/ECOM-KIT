@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.tokenBudgetsRelations = exports.exportJobsRelations = exports.collisionsRelations = exports.enrichedItemsRelations = exports.enrichmentRunsRelations = exports.reviewTasksRelations = exports.schemaFieldsRelations = exports.schemaTemplatesRelations = exports.seoTasksRelations = exports.uploadJobsRelations = exports.tokenUsageLogs = exports.tokenBudgets = exports.exportJobs = exports.collisions = exports.enrichedItems = exports.enrichmentRuns = exports.reviewTasks = exports.schemaFields = exports.schemaTemplates = exports.providerConfigs = exports.reviewTaskStatusEnum = exports.reviewTaskTypeEnum = exports.schemaFieldTypeEnum = exports.schemaTemplateStatusEnum = exports.providerEnum = exports.refreshTokens = exports.auditLogs = exports.seoTasks = exports.uploadJobs = exports.projects = exports.accessGrants = exports.serviceAccess = exports.services = exports.memberships = exports.rolePermissions = exports.permissions = exports.roles = exports.users = exports.organizations = exports.seoTaskStatusEnum = exports.exportStatusEnum = exports.collisionStatusEnum = exports.enrichedItemStatusEnum = exports.enrichmentRunStatusEnum = exports.uploadJobStatusEnum = exports.serviceStatusEnum = exports.membershipStatusEnum = exports.userStatusEnum = exports.orgStatusEnum = exports.orgPlanEnum = void 0;
-exports.tokenUsageLogsRelations = void 0;
+exports.knowledgeSourceEnum = exports.exportJobsRelations = exports.collisionsRelations = exports.enrichedItemsRelations = exports.enrichmentRunsRelations = exports.reviewTasksRelations = exports.schemaFieldsRelations = exports.schemaTemplatesRelations = exports.seoTasksRelations = exports.uploadJobsRelations = exports.tokenUsageLogs = exports.tokenBudgets = exports.exportJobs = exports.collisions = exports.enrichedItems = exports.enrichmentRuns = exports.reviewTasks = exports.schemaFields = exports.schemaTemplates = exports.providerConfigs = exports.reviewTaskStatusEnum = exports.reviewTaskTypeEnum = exports.schemaFieldTypeEnum = exports.schemaTemplateStatusEnum = exports.providerEnum = exports.refreshTokens = exports.auditLogs = exports.seoTasks = exports.uploadJobs = exports.projects = exports.accessGrants = exports.serviceAccess = exports.services = exports.memberships = exports.rolePermissions = exports.permissions = exports.roles = exports.users = exports.organizations = exports.seoTaskStatusEnum = exports.exportStatusEnum = exports.collisionStatusEnum = exports.enrichedItemStatusEnum = exports.enrichmentRunStatusEnum = exports.uploadJobStatusEnum = exports.serviceStatusEnum = exports.membershipStatusEnum = exports.userStatusEnum = exports.orgStatusEnum = exports.orgPlanEnum = void 0;
+exports.tokenUsageLogsRelations = exports.tokenBudgetsRelations = exports.enrichmentKnowledgeRelations = exports.enrichmentKnowledge = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
 const drizzle_orm_1 = require("drizzle-orm");
 // Enums
@@ -140,6 +140,7 @@ exports.uploadJobs = (0, pg_core_1.pgTable)('upload_jobs', {
     originalFilename: (0, pg_core_1.text)('original_filename').notNull(),
     rowCount: (0, pg_core_1.integer)('row_count'),
     includeSeo: (0, pg_core_1.boolean)('include_seo').default(false).notNull(),
+    catalogContext: (0, pg_core_1.text)('catalog_context'),
     errorDetails: (0, pg_core_1.text)('error_details'),
     createdAt: (0, pg_core_1.timestamp)('created_at').defaultNow().notNull(),
     updatedAt: (0, pg_core_1.timestamp)('updated_at').defaultNow().notNull(),
@@ -204,6 +205,8 @@ exports.schemaTemplates = (0, pg_core_1.pgTable)('schema_templates', {
     confirmedBy: (0, pg_core_1.uuid)('confirmed_by').references(() => exports.users.id),
     confirmedAt: (0, pg_core_1.timestamp)('confirmed_at'),
     aiModel: (0, pg_core_1.text)('ai_model').notNull(),
+    catalogAnalysis: (0, pg_core_1.text)('catalog_analysis'), // JSON: CatalogAnalysis from Stage A
+    goldenSamples: (0, pg_core_1.text)('golden_samples'), // JSON: user-provided example rows with correct enrichment
     createdAt: (0, pg_core_1.timestamp)('created_at').defaultNow().notNull(),
 });
 exports.schemaFields = (0, pg_core_1.pgTable)('schema_fields', {
@@ -216,6 +219,7 @@ exports.schemaFields = (0, pg_core_1.pgTable)('schema_fields', {
     isRequired: (0, pg_core_1.boolean)('is_required').default(false).notNull(),
     allowedValues: (0, pg_core_1.text)('allowed_values').array(),
     description: (0, pg_core_1.text)('description'),
+    extractionHint: (0, pg_core_1.text)('extraction_hint'), // user-provided AI instruction for this field
     sortOrder: (0, pg_core_1.integer)('sort_order').default(0).notNull(),
 });
 exports.reviewTasks = (0, pg_core_1.pgTable)('review_tasks', {
@@ -240,6 +244,7 @@ exports.enrichmentRuns = (0, pg_core_1.pgTable)('enrichment_runs', {
     processedItems: (0, pg_core_1.integer)('processed_items').default(0).notNull(),
     failedItems: (0, pg_core_1.integer)('failed_items').default(0).notNull(),
     tokensUsed: (0, pg_core_1.integer)('tokens_used').default(0).notNull(),
+    lastProcessedRowIndex: (0, pg_core_1.integer)('last_processed_row_index').default(0).notNull(),
     startedAt: (0, pg_core_1.timestamp)('started_at'),
     completedAt: (0, pg_core_1.timestamp)('completed_at'),
     createdAt: (0, pg_core_1.timestamp)('created_at').defaultNow().notNull(),
@@ -266,6 +271,7 @@ exports.collisions = (0, pg_core_1.pgTable)('collisions', {
     enrichedItemId: (0, pg_core_1.uuid)('enriched_item_id').notNull().references(() => exports.enrichedItems.id),
     field: (0, pg_core_1.text)('field').notNull(),
     originalValue: (0, pg_core_1.text)('original_value'), // value from AI
+    suggestedValues: (0, pg_core_1.text)('suggested_values'), // JSON array of alternative candidate values
     resolvedValue: (0, pg_core_1.text)('resolved_value'), // value after human review
     reason: (0, pg_core_1.text)('reason').notNull(), // 'low_confidence', 'missing_required', 'invalid_format'
     status: (0, exports.collisionStatusEnum)('status').default('detected').notNull(),
@@ -389,6 +395,25 @@ exports.exportJobsRelations = (0, drizzle_orm_1.relations)(exports.exportJobs, (
     user: one(exports.users, {
         fields: [exports.exportJobs.requestedBy],
         references: [exports.users.id],
+    }),
+}));
+// --- Cross-org enrichment knowledge base ---
+exports.knowledgeSourceEnum = (0, pg_core_1.pgEnum)('knowledge_source', ['correction', 'confirmed']);
+exports.enrichmentKnowledge = (0, pg_core_1.pgTable)('enrichment_knowledge', {
+    id: (0, pg_core_1.uuid)('id').primaryKey().defaultRandom(),
+    orgId: (0, pg_core_1.uuid)('org_id').notNull().references(() => exports.organizations.id), // who contributed
+    fieldName: (0, pg_core_1.text)('field_name').notNull(),
+    productCategory: (0, pg_core_1.text)('product_category'), // category from catalog analysis
+    inputContext: (0, pg_core_1.text)('input_context').notNull(), // product name/description snippet
+    aiValue: (0, pg_core_1.text)('ai_value'), // what AI originally returned
+    correctValue: (0, pg_core_1.text)('correct_value').notNull(), // the correct/confirmed value
+    source: (0, exports.knowledgeSourceEnum)('source').notNull(), // 'correction' or 'confirmed'
+    createdAt: (0, pg_core_1.timestamp)('created_at').defaultNow().notNull(),
+});
+exports.enrichmentKnowledgeRelations = (0, drizzle_orm_1.relations)(exports.enrichmentKnowledge, ({ one }) => ({
+    org: one(exports.organizations, {
+        fields: [exports.enrichmentKnowledge.orgId],
+        references: [exports.organizations.id],
     }),
 }));
 exports.tokenBudgetsRelations = (0, drizzle_orm_1.relations)(exports.tokenBudgets, ({ one }) => ({

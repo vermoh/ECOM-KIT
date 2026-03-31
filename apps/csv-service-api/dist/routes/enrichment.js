@@ -9,7 +9,7 @@ const shared_auth_1 = require("@ecom-kit/shared-auth");
 const queue_1 = require("../lib/queue");
 const ioredis_1 = __importDefault(require("ioredis"));
 const bullmq_1 = require("bullmq");
-const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:8080';
+const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:4000';
 const SERVICE_TOKEN = process.env.CSV_SERVICE_TOKEN || 'csv-service-shared-secret';
 async function enrichmentRoutes(fastify) {
     // Start enrichment process
@@ -52,7 +52,7 @@ async function enrichmentRoutes(fastify) {
         // 2.5 Issue AccessGrant for the worker
         let accessGrantToken;
         try {
-            const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue`, {
+            const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue-internal`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -60,12 +60,18 @@ async function enrichmentRoutes(fastify) {
                 },
                 body: JSON.stringify({
                     serviceSlug: 'csv-service-worker',
-                    scopes: ['secret:read', 'enrichment:write']
+                    scopes: ['secret:read', 'enrichment:write'],
+                    orgId: session.orgId
                 })
             });
             if (grantRes.ok) {
                 const grantData = await grantRes.json();
                 accessGrantToken = grantData.token;
+                console.log('[Enrichment] AccessGrant issued successfully');
+            }
+            else {
+                const errBody = await grantRes.text();
+                console.error(`[Enrichment] Failed to issue AccessGrant: ${grantRes.status} ${errBody}`);
             }
         }
         catch (err) {
@@ -159,7 +165,7 @@ async function enrichmentRoutes(fastify) {
         // 4. Issue AccessGrant for the worker (ADR-003)
         let accessGrantToken;
         try {
-            const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue`, {
+            const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue-internal`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -167,12 +173,18 @@ async function enrichmentRoutes(fastify) {
                 },
                 body: JSON.stringify({
                     serviceSlug: 'csv-service-worker',
-                    scopes: ['secret:read', 'seo:write']
+                    scopes: ['secret:read', 'seo:write'],
+                    orgId: session.orgId
                 })
             });
             if (grantRes.ok) {
                 const grantData = await grantRes.json();
                 accessGrantToken = grantData.token;
+                console.log('[SEO] AccessGrant issued successfully');
+            }
+            else {
+                const errBody = await grantRes.text();
+                console.error(`[SEO] Failed to issue AccessGrant: ${grantRes.status} ${errBody}`);
             }
         }
         catch (err) {

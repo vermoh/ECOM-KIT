@@ -13,7 +13,7 @@ exports.s3Client = new client_s3_1.S3Client({
         accessKeyId,
         secretAccessKey,
     },
-    forcePathStyle: true,
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
 });
 exports.BUCKET_NAME = process.env.S3_BUCKET || 'ecom-kit-uploads';
 //# sourceMappingURL=s3.js.map

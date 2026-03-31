@@ -11,7 +11,7 @@ const fastify = (0, fastify_1.default)({
     logger: true
 });
 fastify.register(cors_1.default, {
-    origin: true // Allows all origins in development
+    origin: process.env.WEB_ORIGIN || true,
 });
 fastify.register(fastify_metrics_1.default, { endpoint: '/metrics' });
 // Global Error Handler
@@ -68,7 +68,7 @@ fastify.get('/health', async (request, reply) => {
 });
 const start = async () => {
     try {
-        const port = Number(process.env.CSV_API_PORT) || 4001;
+        const port = Number(process.env.PORT) || Number(process.env.CSV_API_PORT) || 4001;
         await fastify.listen({ port, host: '0.0.0.0' });
     }
     catch (err) {

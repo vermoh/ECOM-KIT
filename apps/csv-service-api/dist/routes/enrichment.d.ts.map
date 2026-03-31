@@ -1,1 +1,1 @@
-{"version":3,"file":"enrichment.d.ts","sourceRoot":"","sources":["../../src/routes/enrichment.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,eAAe,EAAE,MAAM,SAAS,CAAC;AAU1C,wBAAsB,gBAAgB,CAAC,OAAO,EAAE,eAAe,iBAwN9D"}
+{"version":3,"file":"enrichment.d.ts","sourceRoot":"","sources":["../../src/routes/enrichment.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,eAAe,EAAE,MAAM,SAAS,CAAC;AAU1C,wBAAsB,gBAAgB,CAAC,OAAO,EAAE,eAAe,iBAkO9D"}

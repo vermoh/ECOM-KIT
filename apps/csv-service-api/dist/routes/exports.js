@@ -5,6 +5,8 @@ const shared_db_1 = require("@ecom-kit/shared-db");
 const shared_auth_1 = require("@ecom-kit/shared-auth");
 const queue_1 = require("../lib/queue");
 const uuid_1 = require("uuid");
+const client_s3_1 = require("@aws-sdk/client-s3");
+const s3_1 = require("../lib/s3");
 async function exportRoutes(fastify) {
     // Trigger a new export
     fastify.post('/projects/:projectId/uploads/:uploadId/export', async (request, reply) => {
@@ -77,6 +79,34 @@ async function exportRoutes(fastify) {
             return reply.status(404).send({ error: 'Export job not found' });
         }
         return job;
+    });
+    // Download export — stream the file directly from S3 through the API
+    fastify.get('/projects/:projectId/uploads/:uploadId/exports/:id/download', async (request, reply) => {
+        const session = request.userSession;
+        const { id, uploadId } = request.params;
+        if (!(0, shared_auth_1.hasPermission)(session, 'export:read')) {
+            return reply.status(403).send({ error: 'Forbidden: export:read required' });
+        }
+        const job = await shared_db_1.db.query.exportJobs.findFirst({
+            where: (0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.exportJobs.id, id), (0, shared_db_1.eq)(shared_db_1.exportJobs.uploadId, uploadId), (0, shared_db_1.eq)(shared_db_1.exportJobs.orgId, session.orgId))
+        });
+        if (!job) {
+            return reply.status(404).send({ error: 'Export job not found' });
+        }
+        if (job.status !== 'ready' || !job.s3Key) {
+            return reply.status(400).send({ error: 'Export is not ready for download' });
+        }
+        // Fetch file from S3 and send as buffer
+        const s3Response = await s3_1.s3Client.send(new client_s3_1.GetObjectCommand({
+            Bucket: s3_1.BUCKET_NAME,
+            Key: job.s3Key,
+        }));
+        const bodyBytes = await s3Response.Body.transformToByteArray();
+        const buffer = Buffer.from(bodyBytes);
+        reply.header('Content-Type', 'text/csv; charset=utf-8');
+        reply.header('Content-Disposition', 'attachment; filename="enriched_export.csv"');
+        reply.header('Content-Length', buffer.length);
+        return reply.send(buffer);
     });
     // List exports for an upload
     fastify.get('/projects/:projectId/uploads/:uploadId/exports', async (request, reply) => {

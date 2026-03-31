@@ -1,10 +1,14 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.providerRoutes = providerRoutes;
 const shared_db_1 = require("@ecom-kit/shared-db");
 const shared_db_2 = require("@ecom-kit/shared-db");
 const guards_js_1 = require("../guards.js");
 const shared_auth_1 = require("@ecom-kit/shared-auth");
+const node_crypto_1 = __importDefault(require("node:crypto"));
 const MASTER_KEY = process.env.ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 async function providerRoutes(fastify) {
     fastify.get('/', {
@@ -110,19 +114,52 @@ async function providerRoutes(fastify) {
         });
         return reply.status(204).send();
     });
-    fastify.get('/key/:provider', {
-        preHandler: [(0, guards_js_1.requirePermission)('secret:read')]
-    }, async (request, reply) => {
-        const session = request.userSession;
+    fastify.get('/key/:provider', async (request, reply) => {
         const { provider } = request.params;
+        let orgId;
+        if (request.userSession?.orgId) {
+            if (!request.userSession.permissions?.includes('secret:read') && !request.userSession.permissions?.includes('*')) {
+                return reply.status(403).send({ error: 'PERMISSION_DENIED', permission: 'secret:read' });
+            }
+            orgId = request.userSession.orgId;
+        }
+        else {
+            const authHeader = request.headers['authorization'] || '';
+            const token = authHeader.replace('Bearer ', '');
+            if (!token) {
+                return reply.status(401).send({ error: 'Unauthorized' });
+            }
+            try {
+                const tokenHash = node_crypto_1.default.createHash('sha256').update(token).digest('hex');
+                const [grant] = await shared_db_1.db.select()
+                    .from(shared_db_2.accessGrants)
+                    .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.accessGrants.tokenHash, tokenHash), (0, shared_db_1.isNull)(shared_db_2.accessGrants.revokedAt)))
+                    .limit(1);
+                if (!grant || grant.expiresAt < new Date()) {
+                    return reply.status(401).send({ error: 'INVALID_OR_EXPIRED_GRANT' });
+                }
+                if (!Array.isArray(grant.scopes) || !grant.scopes.includes('secret:read')) {
+                    return reply.status(403).send({ error: 'PERMISSION_DENIED', permission: 'secret:read' });
+                }
+                orgId = grant.orgId;
+            }
+            catch (err) {
+                console.error('[Providers] AccessGrant DB verify failed:', err);
+                return reply.status(500).send({ error: 'GRANT_VERIFY_FAILED' });
+            }
+        }
+        if (!orgId) {
+            return reply.status(401).send({ error: 'Unauthorized' });
+        }
         const [config] = await shared_db_1.db.select()
             .from(shared_db_2.providerConfigs)
-            .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, session.orgId), (0, shared_db_1.eq)(shared_db_2.providerConfigs.provider, provider)))
+            .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, orgId), (0, shared_db_1.eq)(shared_db_2.providerConfigs.provider, provider)))
             .limit(1);
         if (!config) {
             return reply.status(404).send({ error: 'CONFIG_NOT_FOUND' });
         }
         const decryptedValue = (0, shared_auth_1.decrypt)(config.encryptedValue, MASTER_KEY);
+        console.log(`[Providers] Key resolved for org ${orgId}, provider ${provider}, hint: ***${config.keyHint}`);
         return {
             provider: config.provider,
             value: decryptedValue

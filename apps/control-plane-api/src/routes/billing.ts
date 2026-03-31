@@ -133,7 +133,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
 
       await db.insert(auditLogs).values({
         orgId: session.orgId,
-        actorId: session.userId,
+        userId: session.userId,
         actorType: 'user',
         action: 'billing.limit_updated',
         resourceType: 'token_budget',

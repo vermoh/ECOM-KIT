@@ -39,7 +39,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.db = exports.connection = exports.isNull = exports.count = exports.sql = exports.asc = exports.desc = exports.or = exports.and = exports.eq = void 0;
+exports.db = exports.connection = exports.inArray = exports.isNull = exports.count = exports.sql = exports.asc = exports.desc = exports.or = exports.and = exports.eq = void 0;
 exports.withTenant = withTenant;
 const postgres_js_1 = require("drizzle-orm/postgres-js");
 const postgres_1 = __importDefault(require("postgres"));
@@ -53,10 +53,13 @@ Object.defineProperty(exports, "asc", { enumerable: true, get: function () { ret
 Object.defineProperty(exports, "sql", { enumerable: true, get: function () { return drizzle_orm_1.sql; } });
 Object.defineProperty(exports, "count", { enumerable: true, get: function () { return drizzle_orm_1.count; } });
 Object.defineProperty(exports, "isNull", { enumerable: true, get: function () { return drizzle_orm_1.isNull; } });
+Object.defineProperty(exports, "inArray", { enumerable: true, get: function () { return drizzle_orm_1.inArray; } });
 const drizzle_orm_2 = require("drizzle-orm");
 const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
 // Create a single connection pool for the application
-exports.connection = (0, postgres_1.default)(connectionString);
+exports.connection = (0, postgres_1.default)(connectionString, {
+    ssl: process.env.NODE_ENV === 'production' ? 'require' : false,
+});
 exports.db = (0, postgres_js_1.drizzle)(exports.connection, { schema });
 // Export all schema tables
 __exportStar(require("./schema.js"), exports);

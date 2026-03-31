@@ -43,7 +43,7 @@ async function authRoutes(fastify) {
         let permissionsSet = [];
         let validUntil;
         if (user.isSuperAdmin) {
-            sessionOrgId = orgId || '00000000-0000-0000-0000-000000000000';
+            sessionOrgId = orgId || '00000000-0000-0000-0000-000000000001';
             rolesSet = ['super_admin'];
             permissionsSet = ['*'];
         }
@@ -72,7 +72,7 @@ async function authRoutes(fastify) {
             roles: rolesSet,
             permissions: permissionsSet,
             validUntil,
-            exp: Math.floor(Date.now() / 1000) + (15 * 60)
+            exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60)
         };
         const accessToken = (0, shared_auth_1.generateToken)(accessTokenSession);
         const refreshToken = (0, uuid_1.v4)();
@@ -84,7 +84,7 @@ async function authRoutes(fastify) {
         await fastify.redis.set(`session:${user.id}`, JSON.stringify(accessTokenSession), 'EX', 7 * 24 * 60 * 60);
         await shared_db_1.db.insert(shared_db_2.auditLogs).values({
             userId: user.id,
-            orgId: sessionOrgId === '00000000-0000-0000-0000-000000000000' ? null : sessionOrgId,
+            orgId: sessionOrgId === '00000000-0000-0000-0000-000000000001' ? null : sessionOrgId,
             action: 'user.login',
             payload: JSON.stringify({ email: user.email }),
         });
@@ -129,7 +129,7 @@ async function authRoutes(fastify) {
             roles: rolesSet,
             permissions: permissionsSet,
             validUntil,
-            exp: Math.floor(Date.now() / 1000) + (15 * 60)
+            exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60)
         };
         const accessToken = (0, shared_auth_1.generateToken)(newSession);
         await fastify.redis.set(`session:${user.id}`, JSON.stringify(newSession), 'EX', 7 * 24 * 60 * 60);
@@ -151,7 +151,7 @@ async function authRoutes(fastify) {
         const [user] = await shared_db_1.db.select().from(shared_db_2.users).where((0, shared_db_1.eq)(shared_db_2.users.id, storedToken.userId)).limit(1);
         const lastSessionStr = await fastify.redis.get(`session:${user.id}`);
         const lastSession = lastSessionStr ? JSON.parse(lastSessionStr) : null;
-        const sessionOrgId = lastSession?.orgId || '00000000-0000-0000-0000-000000000000';
+        const sessionOrgId = lastSession?.orgId || '00000000-0000-0000-0000-000000000001';
         let rolesSet = [];
         let permissionsSet = [];
         let validUntil;
@@ -174,7 +174,7 @@ async function authRoutes(fastify) {
             roles: rolesSet,
             permissions: permissionsSet,
             validUntil,
-            exp: Math.floor(Date.now() / 1000) + (15 * 60)
+            exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60)
         };
         const accessToken = (0, shared_auth_1.generateToken)(accessTokenSession);
         return { accessToken };

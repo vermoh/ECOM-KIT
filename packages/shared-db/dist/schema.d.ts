@@ -1042,6 +1042,18 @@ export declare const uploadJobs: import("drizzle-orm/pg-core").PgTableWithColumn
             enumValues: undefined;
             baseColumn: never;
         }, {}, {}>;
+        catalogContext: import("drizzle-orm/pg-core").PgColumn<{
+            name: "catalog_context";
+            tableName: "upload_jobs";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
         errorDetails: import("drizzle-orm/pg-core").PgColumn<{
             name: "error_details";
             tableName: "upload_jobs";
@@ -1658,6 +1670,30 @@ export declare const schemaTemplates: import("drizzle-orm/pg-core").PgTableWithC
             enumValues: [string, ...string[]];
             baseColumn: never;
         }, {}, {}>;
+        catalogAnalysis: import("drizzle-orm/pg-core").PgColumn<{
+            name: "catalog_analysis";
+            tableName: "schema_templates";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        goldenSamples: import("drizzle-orm/pg-core").PgColumn<{
+            name: "golden_samples";
+            tableName: "schema_templates";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
         createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "schema_templates";
@@ -1786,6 +1822,18 @@ export declare const schemaFields: import("drizzle-orm/pg-core").PgTableWithColu
         }, {}, {}>;
         description: import("drizzle-orm/pg-core").PgColumn<{
             name: "description";
+            tableName: "schema_fields";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        extractionHint: import("drizzle-orm/pg-core").PgColumn<{
+            name: "extraction_hint";
             tableName: "schema_fields";
             dataType: "string";
             columnType: "PgText";
@@ -2040,6 +2088,18 @@ export declare const enrichmentRuns: import("drizzle-orm/pg-core").PgTableWithCo
         }, {}, {}>;
         tokensUsed: import("drizzle-orm/pg-core").PgColumn<{
             name: "tokens_used";
+            tableName: "enrichment_runs";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        lastProcessedRowIndex: import("drizzle-orm/pg-core").PgColumn<{
+            name: "last_processed_row_index";
             tableName: "enrichment_runs";
             dataType: "number";
             columnType: "PgInteger";
@@ -2318,6 +2378,18 @@ export declare const collisions: import("drizzle-orm/pg-core").PgTableWithColumn
         }, {}, {}>;
         originalValue: import("drizzle-orm/pg-core").PgColumn<{
             name: "original_value";
+            tableName: "collisions";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        suggestedValues: import("drizzle-orm/pg-core").PgColumn<{
+            name: "suggested_values";
             tableName: "collisions";
             dataType: "string";
             columnType: "PgText";
@@ -2787,6 +2859,125 @@ export declare const exportJobsRelations: import("drizzle-orm").Relations<"expor
     org: import("drizzle-orm").One<"organizations", true>;
     upload: import("drizzle-orm").One<"upload_jobs", true>;
     user: import("drizzle-orm").One<"users", true>;
+}>;
+export declare const knowledgeSourceEnum: import("drizzle-orm/pg-core").PgEnum<["correction", "confirmed"]>;
+export declare const enrichmentKnowledge: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "enrichment_knowledge";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "enrichment_knowledge";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        orgId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "org_id";
+            tableName: "enrichment_knowledge";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        fieldName: import("drizzle-orm/pg-core").PgColumn<{
+            name: "field_name";
+            tableName: "enrichment_knowledge";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        productCategory: import("drizzle-orm/pg-core").PgColumn<{
+            name: "product_category";
+            tableName: "enrichment_knowledge";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        inputContext: import("drizzle-orm/pg-core").PgColumn<{
+            name: "input_context";
+            tableName: "enrichment_knowledge";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        aiValue: import("drizzle-orm/pg-core").PgColumn<{
+            name: "ai_value";
+            tableName: "enrichment_knowledge";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        correctValue: import("drizzle-orm/pg-core").PgColumn<{
+            name: "correct_value";
+            tableName: "enrichment_knowledge";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        source: import("drizzle-orm/pg-core").PgColumn<{
+            name: "source";
+            tableName: "enrichment_knowledge";
+            dataType: "string";
+            columnType: "PgEnumColumn";
+            data: "confirmed" | "correction";
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            enumValues: ["correction", "confirmed"];
+            baseColumn: never;
+        }, {}, {}>;
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "enrichment_knowledge";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+    };
+    dialect: "pg";
+}>;
+export declare const enrichmentKnowledgeRelations: import("drizzle-orm").Relations<"enrichment_knowledge", {
+    org: import("drizzle-orm").One<"organizations", true>;
 }>;
 export declare const tokenBudgetsRelations: import("drizzle-orm").Relations<"token_budgets", {
     org: import("drizzle-orm").One<"organizations", true>;

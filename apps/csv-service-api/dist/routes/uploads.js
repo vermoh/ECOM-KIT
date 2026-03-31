@@ -13,7 +13,7 @@ async function uploadRoutes(fastify) {
     fastify.post('/projects/:projectId/uploads', async (request, reply) => {
         const session = request.userSession;
         const { projectId } = request.params;
-        const { filename, includeSeo } = request.body;
+        const { filename, includeSeo, catalogContext } = request.body;
         if (!(0, shared_auth_1.hasPermission)(session, 'upload:create')) {
             return reply.status(403).send({ error: 'Forbidden: upload:create required' });
         }
@@ -39,6 +39,7 @@ async function uploadRoutes(fastify) {
                 s3Key,
                 originalFilename: filename,
                 includeSeo: includeSeo || false,
+                catalogContext: catalogContext || null,
             }).returning();
         });
         // Generate Pre-signed URL
@@ -67,7 +68,14 @@ async function uploadRoutes(fastify) {
         if (!job) {
             return reply.status(404).send({ error: 'Upload job not found' });
         }
-        return job;
+        const latestRun = await shared_db_1.db.query.enrichmentRuns.findFirst({
+            where: (0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_1.enrichmentRuns.jobId, job.id), (0, shared_db_1.eq)(shared_db_1.enrichmentRuns.orgId, session.orgId)),
+            orderBy: (runs, { desc }) => [desc(runs.createdAt)],
+        });
+        return {
+            ...job,
+            enrichmentRun: latestRun || null
+        };
     });
     // List uploads for a project
     fastify.get('/projects/:projectId/uploads', async (request, reply) => {
@@ -99,11 +107,15 @@ async function uploadRoutes(fastify) {
         if (job.status !== 'pending' && job.status !== 'failed') {
             return reply.status(400).send({ error: 'Job already in progress or completed' });
         }
+        // Extract bearer token from header to pass as access grant
+        const authHeader = request.headers.authorization;
+        const accessGrantToken = authHeader?.replace('Bearer ', '');
         // Add to parsing queue
         await queue_1.csvParsingQueue.add('csv-parsing', {
             uploadJobId: job.id,
             orgId: session.orgId,
-            s3Key: job.s3Key
+            s3Key: job.s3Key,
+            accessGrantToken
         });
         // Update status to pending (redundant but sets updatedAt)
         await (0, shared_db_1.withTenant)(session.orgId, async (tx) => {

@@ -11,16 +11,16 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HealthController = void 0;
 const common_1 = require("@nestjs/common");
-const permissions_decorator_1 = require("./auth/permissions.decorator");
+const jwt_auth_guard_1 = require("./auth/jwt-auth.guard");
 let HealthController = class HealthController {
     check() {
-        return { status: 'ok', timestamp: new Date().toISOString() };
+        return { status: 'ok', service: 'control-plane-api' };
     }
 };
 exports.HealthController = HealthController;
 __decorate([
     (0, common_1.Get)(),
-    (0, permissions_decorator_1.Permissions)('*'),
+    (0, jwt_auth_guard_1.Public)(),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)

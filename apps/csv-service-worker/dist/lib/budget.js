@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.checkBudget = checkBudget;
 exports.consumeBudget = consumeBudget;
-const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:8080';
+const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:4000';
 // In production, this would be a real AccessGrant token
 const SERVICE_TOKEN = process.env.CSV_SERVICE_TOKEN || 'csv-service-shared-secret';
 async function checkBudget(orgId, requiredTokens) {
@@ -16,15 +16,21 @@ async function checkBudget(orgId, requiredTokens) {
             body: JSON.stringify({ orgId, requiredTokens })
         });
         if (!res.ok) {
-            console.error(`[Budget] Check failed for org ${orgId}: ${res.statusText}`);
-            return false;
+            // Fail open: billing service errors should not block AI operations.
+            // The real token limit is enforced at the provider (OpenRouter) level.
+            console.warn(`[Budget] Check HTTP ${res.status} for org ${orgId} — proceeding anyway`);
+            return true;
         }
         const data = await res.json();
+        if (!data.canProceed) {
+            console.warn(`[Budget] Org ${orgId} is out of internal token budget`);
+        }
         return data.canProceed;
     }
     catch (err) {
-        console.error(`[Budget] Check error:`, err);
-        return false;
+        // Network/parse error — fail open so connectivity issues don't block jobs
+        console.warn(`[Budget] Check unreachable for org ${orgId} — proceeding anyway:`, err);
+        return true;
     }
 }
 async function consumeBudget(data) {

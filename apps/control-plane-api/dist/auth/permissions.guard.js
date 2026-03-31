@@ -13,11 +13,18 @@ exports.PermissionsGuard = void 0;
 const common_1 = require("@nestjs/common");
 const core_1 = require("@nestjs/core");
 const permissions_decorator_1 = require("./permissions.decorator");
+const jwt_auth_guard_1 = require("./jwt-auth.guard");
 let PermissionsGuard = class PermissionsGuard {
     constructor(reflector) {
         this.reflector = reflector;
     }
     canActivate(context) {
+        const isPublic = this.reflector.getAllAndOverride(jwt_auth_guard_1.IS_PUBLIC_KEY, [
+            context.getHandler(),
+            context.getClass(),
+        ]);
+        if (isPublic)
+            return true;
         const requiredPermissions = this.reflector.getAllAndOverride(permissions_decorator_1.PERMISSIONS_KEY, [
             context.getHandler(),
             context.getClass(),

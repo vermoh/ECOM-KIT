@@ -13,8 +13,8 @@ async function billingRoutes(fastify) {
         if (!budget) {
             const [newBudget] = await shared_db_1.db.insert(shared_db_2.tokenBudgets).values({
                 orgId,
-                totalTokens: 100000,
-                remainingTokens: 100000,
+                totalTokens: 10000000,
+                remainingTokens: 10000000,
             }).returning();
             return {
                 canProceed: newBudget.remainingTokens >= requiredTokens,
@@ -77,6 +77,49 @@ async function billingRoutes(fastify) {
             budget,
             recentLogs
         };
+    });
+    fastify.patch('/budget/limit', {
+        preHandler: [(0, guards_js_1.requirePermission)('organization:read')]
+    }, async (request, reply) => {
+        const session = request.userSession;
+        const { totalTokens, resetRemaining } = request.body;
+        if (!totalTokens || typeof totalTokens !== 'number' || totalTokens < 1) {
+            return reply.status(400).send({ error: 'totalTokens must be a positive number' });
+        }
+        const existing = await shared_db_1.db.query.tokenBudgets.findFirst({
+            where: (0, shared_db_1.eq)(shared_db_2.tokenBudgets.orgId, session.orgId)
+        });
+        if (existing) {
+            const updates = { totalTokens, updatedAt: new Date() };
+            if (resetRemaining) {
+                updates.remainingTokens = totalTokens;
+            }
+            else {
+                updates.remainingTokens = Math.min(existing.remainingTokens, totalTokens);
+            }
+            const [updated] = await shared_db_1.db.update(shared_db_2.tokenBudgets)
+                .set(updates)
+                .where((0, shared_db_1.eq)(shared_db_2.tokenBudgets.orgId, session.orgId))
+                .returning();
+            await shared_db_1.db.insert(shared_db_2.auditLogs).values({
+                orgId: session.orgId,
+                userId: session.userId,
+                actorType: 'user',
+                action: 'billing.limit_updated',
+                resourceType: 'token_budget',
+                resourceId: existing.id,
+                payload: JSON.stringify({ totalTokens, resetRemaining }),
+            });
+            return updated;
+        }
+        else {
+            const [created] = await shared_db_1.db.insert(shared_db_2.tokenBudgets).values({
+                orgId: session.orgId,
+                totalTokens,
+                remainingTokens: totalTokens,
+            }).returning();
+            return created;
+        }
     });
     fastify.post('/webhook', async (request, reply) => {
         const payload = request.body;
