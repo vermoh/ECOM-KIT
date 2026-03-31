@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { db, uploadJobs, enrichedItems, collisions, reviewTasks, auditLogs, eq, and, or, withTenant, count } from '@ecom-kit/shared-db';
+import { db, uploadJobs, enrichedItems, collisions, reviewTasks, auditLogs, enrichmentKnowledge, schemaTemplates, schemaFields, eq, and, or, desc, withTenant, count, sql } from '@ecom-kit/shared-db';
 import { hasPermission } from '@ecom-kit/shared-auth';
 
 export async function collisionsRoutes(fastify: FastifyInstance) {
@@ -41,12 +41,36 @@ export async function collisionsRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Collision not found' });
     }
 
+    // Normalize resolvedValue to a string for consistent storage
+    const resolvedValueStr = typeof resolvedValue === 'string' ? resolvedValue : JSON.stringify(resolvedValue);
+
+    // Warn if the field is enum type and resolvedValue is not in allowedValues
+    try {
+      const template = await db.query.schemaTemplates.findFirst({
+        where: and(
+          eq(schemaTemplates.jobId, collision.jobId),
+          eq(schemaTemplates.orgId, session.orgId)
+        ),
+        with: { fields: true }
+      });
+      if (template) {
+        const schemaField = template.fields.find((f: any) => f.name === collision.field);
+        if (schemaField && schemaField.fieldType === 'enum' && Array.isArray(schemaField.allowedValues) && schemaField.allowedValues.length > 0) {
+          if (!schemaField.allowedValues.includes(resolvedValueStr)) {
+            console.warn(`[Collision Resolve] resolvedValue "${resolvedValueStr}" is not in allowedValues for enum field "${collision.field}". Allowed: ${schemaField.allowedValues.join(', ')}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Collision Resolve] Failed to validate enum allowedValues:', err);
+    }
+
     await withTenant(session.orgId, async (tx) => {
       // 1. Update collision record
       await tx.update(collisions)
-        .set({ 
-          status: 'resolved', 
-          resolvedValue: JSON.stringify(resolvedValue),
+        .set({
+          status: 'resolved',
+          resolvedValue: resolvedValueStr,
           resolvedBy: session.userId,
           resolvedAt: new Date()
         })
@@ -80,6 +104,29 @@ export async function collisionsRoutes(fastify: FastifyInstance) {
         resourceId: collision.id,
         payload: JSON.stringify({ field: collision.field, resolvedValue }),
       });
+
+      // 3.5 Save to cross-org knowledge base (correction = human fixed AI)
+      if (item && collision.originalValue !== resolvedValueStr) {
+        // Extract product context from rawData for future matching
+        let inputContext = '';
+        try {
+          const raw = JSON.parse(item.rawData || '{}');
+          inputContext = raw.name || raw['Имя [Ru]'] || raw['Название'] || raw.title || '';
+          if (!inputContext) inputContext = Object.values(raw).find((v: any) => typeof v === 'string' && v.length > 3 && v.length < 200) as string || '';
+        } catch { /* ignore */ }
+
+        if (inputContext) {
+          await tx.insert(enrichmentKnowledge).values({
+            orgId: session.orgId,
+            fieldName: collision.field,
+            productCategory: null, // TODO: could be extracted from catalog analysis
+            inputContext: String(inputContext).slice(0, 500),
+            aiValue: collision.originalValue,
+            correctValue: resolvedValueStr,
+            source: 'correction',
+          });
+        }
+      }
 
       // 4. Check if all collisions for this job are resolved/dismissed
       // Per state_machines.md: count both 'detected' and 'pending_review' as open
@@ -190,5 +237,35 @@ export async function collisionsRoutes(fastify: FastifyInstance) {
     });
 
     return { success: true };
+  });
+
+  // Knowledge base stats — most frequently corrected fields
+  fastify.get('/knowledge/stats', async (request, reply) => {
+    const session = request.userSession!;
+
+    if (!hasPermission(session, 'upload:read')) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+
+    // Cross-org: count corrections by field_name
+    const stats = await db
+      .select({
+        fieldName: enrichmentKnowledge.fieldName,
+        corrections: count(),
+      })
+      .from(enrichmentKnowledge)
+      .where(eq(enrichmentKnowledge.source, 'correction'))
+      .groupBy(enrichmentKnowledge.fieldName)
+      .orderBy(desc(count()))
+      .limit(15);
+
+    const totalKnowledge = await db
+      .select({ value: count() })
+      .from(enrichmentKnowledge);
+
+    return {
+      topCorrectedFields: stats.map(s => ({ field: s.fieldName, corrections: Number(s.corrections) })),
+      totalEntries: Number(totalKnowledge[0]?.value || 0),
+    };
   });
 }

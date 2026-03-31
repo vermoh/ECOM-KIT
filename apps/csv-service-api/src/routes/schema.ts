@@ -40,6 +40,26 @@ export async function schemaRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'PERMISSION_DENIED' });
     }
 
+    // Input validation: fields must be a non-empty array with required properties
+    if (!Array.isArray(fields) || fields.length === 0) {
+      return reply.status(400).send({ error: 'INVALID_INPUT', message: '`fields` must be a non-empty array' });
+    }
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i];
+      if (!f || typeof f !== 'object') {
+        return reply.status(400).send({ error: 'INVALID_INPUT', message: `fields[${i}] must be an object` });
+      }
+      if (!f.name || typeof f.name !== 'string') {
+        return reply.status(400).send({ error: 'INVALID_INPUT', message: `fields[${i}].name is required and must be a string` });
+      }
+      if (!f.fieldType || typeof f.fieldType !== 'string') {
+        return reply.status(400).send({ error: 'INVALID_INPUT', message: `fields[${i}].fieldType is required and must be a string` });
+      }
+      if (!f.label || typeof f.label !== 'string') {
+        return reply.status(400).send({ error: 'INVALID_INPUT', message: `fields[${i}].label is required and must be a string` });
+      }
+    }
+
     const template = await db.query.schemaTemplates.findFirst({
       where: and(
         eq(schemaTemplates.jobId, id),

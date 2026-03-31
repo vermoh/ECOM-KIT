@@ -7,8 +7,9 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { parse } from 'csv-parse';
 import { stringify } from 'csv-stringify/sync';
 import { Readable } from 'stream';
-import { analyseProductCatalog, generateSchemaSuggestion, enrichItem, generateFewShotExamples, generateSeoAttributes, postProcessEnrichedData } from './lib/ai';
+import { analyseProductCatalog, generateSchemaSuggestion, enrichItem, generateFewShotExamples, generateSeoAttributes, postProcessEnrichedData, detectRowCategory, buildCategoryHint, CatalogAnalysis, analyseFieldConsistency, verifyEnrichedItem } from './lib/ai';
 import { checkBudget, consumeBudget } from './lib/budget';
+import { loadKnowledge, saveConfirmedKnowledge, formatKnowledgeForPrompt } from './lib/knowledge';
 import * as client from 'prom-client';
 import http from 'node:http';
 
@@ -32,9 +33,27 @@ const tokensConsumedCounter = new client.Counter({
   help: 'Total AI tokens consumed',
 });
 
+const avgConfidenceGauge = new client.Gauge({
+  name: 'csv_worker_avg_confidence',
+  help: 'Average confidence score of last enrichment run',
+});
+
+const failedRatioGauge = new client.Gauge({
+  name: 'csv_worker_failed_ratio',
+  help: 'Ratio of failed rows in last enrichment run',
+});
+
+const itemsFailedCounter = new client.Counter({
+  name: 'csv_worker_items_failed_total',
+  help: 'Total number of items that failed enrichment',
+});
+
 register.registerMetric(jobsProcessedCounter);
 register.registerMetric(itemsEnrichedCounter);
 register.registerMetric(tokensConsumedCounter);
+register.registerMetric(avgConfidenceGauge);
+register.registerMetric(failedRatioGauge);
+register.registerMetric(itemsFailedCounter);
 
 // Metrics server
 const metricsServer = http.createServer(async (req, res) => {
@@ -70,6 +89,7 @@ const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:
 export const CSV_PARSING_QUEUE = 'csv-parsing';
 export const GENERATE_SCHEMA_QUEUE = 'generate-schema';
 export const ENRICHMENT_QUEUE = 'enrichment';
+export const NORMALISATION_QUEUE = 'normalisation';
 export const EXPORT_QUEUE = 'export';
 export const SEO_GENERATION_QUEUE = 'seo-generation';
 
@@ -80,6 +100,10 @@ export const generateSchemaQueue = new Queue(GENERATE_SCHEMA_QUEUE, {
     attempts: 3,
     backoff: { type: 'exponential', delay: 10000 },
   },
+});
+
+export const normalisationQueue = new Queue(NORMALISATION_QUEUE, {
+  connection: redisConnection as any,
 });
 
 export const seoGenerationQueue = new Queue(SEO_GENERATION_QUEUE, {
@@ -225,7 +249,7 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
     const uniqueCategories = [...seenCategories.keys()].filter(Boolean);
 
     // 2. Security: Fetch API key using AccessGrant
-    let apiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
+    let apiKey = process.env.OPENROUTER_API_KEY || '';
     if (job.data.accessGrantToken) {
         try {
             apiKey = await getProviderKey('openrouter', job.data.accessGrantToken);
@@ -233,6 +257,9 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
         } catch (err) {
             console.error('[Schema] Failed to fetch secured key, falling back to env');
         }
+    }
+    if (!apiKey) {
+        throw new Error('[Schema] No API key available: set OPENROUTER_API_KEY env var or provide a valid AccessGrant token');
     }
 
     // 2.5 Budget Check
@@ -268,6 +295,7 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
         jobId: uploadJobId,
         status: 'draft',
         aiModel: catalogAnalysis.categories.length > 0 ? 'gpt-4o + gpt-4o-mini' : 'gpt-4o-mini',
+        catalogAnalysis: catalogAnalysis.categories.length > 0 ? JSON.stringify(catalogAnalysis) : null,
       }).returning();
 
       for (let i = 0; i < suggestedFields.length; i++) {
@@ -365,6 +393,7 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
     });
 
     if (!run || !run.template) throw new Error('Enrichment run or template not found');
+    const templateFields = run.template.fields;
 
     // Concurrency guard — abort if another run for this job is already active
     const concurrentRun = await db.query.enrichmentRuns.findFirst({
@@ -391,7 +420,7 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
     });
 
     // 2. Security: Fetch API key using AccessGrant
-    let apiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
+    let apiKey = process.env.OPENROUTER_API_KEY || '';
     if (job.data.accessGrantToken) {
         try {
             apiKey = await getProviderKey('openrouter', job.data.accessGrantToken);
@@ -399,6 +428,9 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
         } catch (err) {
             console.error('[Enrichment] Failed to fetch secured key, falling back to env');
         }
+    }
+    if (!apiKey) {
+        throw new Error('[Enrichment] No API key available: set OPENROUTER_API_KEY env var or provide a valid AccessGrant token');
     }
 
     // 2.5 Global Budget Check
@@ -410,8 +442,21 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
         throw new Error('OUT_OF_BUDGET: Enrichment paused due to insufficient tokens');
     }
 
-    // 2.6 Catalog context + few-shot examples (generated once, reused for all rows)
+    // 2.6 Catalog context + category analysis + few-shot examples (generated once, reused for all rows)
     const catalogContext = uploadJob.catalogContext || undefined;
+
+    // Load category analysis from schema template (saved during Stage A)
+    let knownCategories: CatalogAnalysis['categories'] = [];
+    try {
+      if (run.template.catalogAnalysis) {
+        const analysis: CatalogAnalysis = JSON.parse(run.template.catalogAnalysis);
+        knownCategories = analysis.categories || [];
+        console.log(`[Enrichment] Loaded ${knownCategories.length} categories from catalog analysis`);
+      }
+    } catch { /* ignore parse errors */ }
+
+    // Cache: category hint per detected category name to avoid rebuilding
+    const categoryHintCache = new Map<string, string>();
 
     let fewShotExamples = '';
     try {
@@ -423,12 +468,25 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
       );
       const sampleRows: any[] = [];
       for await (const row of sampleParser) sampleRows.push(row);
-      fewShotExamples = await generateFewShotExamples(sampleRows, run.template.fields, apiKey, catalogContext);
+      fewShotExamples = await generateFewShotExamples(sampleRows, templateFields, apiKey, catalogContext);
       if (fewShotExamples) {
         console.log('[Enrichment] Few-shot examples generated successfully');
       }
     } catch (err) {
       console.warn('[Enrichment] Failed to generate few-shot examples, proceeding without:', err);
+    }
+
+    // 2.7 Load cross-org knowledge base (corrections + confirmed examples)
+    let knowledgeBlock = '';
+    try {
+      const fieldNames = templateFields.map((f: any) => f.name);
+      const knowledge = await loadKnowledge(fieldNames, 20);
+      knowledgeBlock = formatKnowledgeForPrompt(knowledge);
+      if (knowledge.length > 0) {
+        console.log(`[Enrichment] Loaded ${knowledge.length} knowledge entries (${knowledge.filter(k => k.source === 'correction').length} corrections, ${knowledge.filter(k => k.source === 'confirmed').length} confirmed)`);
+      }
+    } catch (err) {
+      console.warn('[Enrichment] Failed to load knowledge base:', err);
     }
 
     // 3. Stream CSV row-by-row — avoids loading the full file into memory
@@ -445,110 +503,264 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
     let failedCount = 0;
     let collisionCount = 0;
     let rowIndex = 0; // absolute row counter — never skipped, used as stable row ID
+    let confidenceSum = 0; // for avg confidence metric
 
-    // 4. Process rows
-    for await (const row of parser) {
-      rowIndex++;
-      const rowLabel = row.sku || row.id || row['Имя [Ru]'] || row['name'] || `row-${rowIndex}`;
-      console.log(`[Enrichment] Row ${rowIndex}: ${String(rowLabel).slice(0, 60)}`);
+    // Checkpoint/resume: skip rows already processed in a previous attempt
+    // Guard against invalid resume values (negative or beyond row count)
+    const resumeFromRow = Math.max(0, run.lastProcessedRowIndex || 0);
+    if (resumeFromRow > 0) {
+      console.log(`[Enrichment] Resuming from row ${resumeFromRow + 1} (checkpoint)`);
+    }
 
-      try {
-        const { enrichedData: rawEnriched, confidence, tokensUsed } = await enrichItem(
-          row,
-          run.template.fields,
-          apiKey,
-          catalogContext,
-          fewShotExamples
-        );
+    // 3.5 Live examples: accumulate high-confidence results per category (max 3 per category)
+    const categoryExamples = new Map<string, { input: any; output: any }[]>();
 
-        totalTokens += tokensUsed;
+    const CONCURRENCY = 5;
+    const MAX_ROW_RETRIES = 2;
+
+    // Helper: process a single row with retry logic
+    async function processRow(row: any, currentRowIndex: number) {
+      const rowLabel = row.sku || row.id || row['Имя [Ru]'] || row['name'] || `row-${currentRowIndex}`;
+
+      // Idempotency guard: if this row was already enriched (e.g. crash after batch
+      // completed but before checkpoint was saved), skip it to avoid duplicate inserts.
+      const existingItem = await db.query.enrichedItems.findFirst({
+        where: and(
+          eq(enrichedItems.runId, enrichmentRunId),
+          eq(enrichedItems.skuExternalId, `row-${currentRowIndex}`),
+          eq(enrichedItems.orgId, orgId)
+        )
+      });
+      if (existingItem) {
+        console.log(`[Enrichment] Row ${currentRowIndex} already processed (idempotency guard), skipping`);
         processedCount++;
+        return;
+      }
 
-        await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed, model: 'gpt-4o-mini', purpose: 'enrichment' });
-        itemsEnrichedCounter.inc();
-        tokensConsumedCounter.inc(tokensUsed);
+      // Detect row category and build hint (cached per category name)
+      const matchedCat = detectRowCategory(row, knownCategories);
+      const catKey = matchedCat?.name || '__default__';
+      if (!categoryHintCache.has(catKey)) {
+        categoryHintCache.set(catKey, buildCategoryHint(matchedCat));
+      }
+      const categoryHint = categoryHintCache.get(catKey) || '';
+      const liveExamples = categoryExamples.get(catKey) || [];
 
-        // Post-process: coerce types + validate enum values
-        const { data: enrichedData, enumViolations } = postProcessEnrichedData(rawEnriched, run.template.fields);
-
-        // Detect collisions
-        const rowCollisions: { field: string; reason: string; value: string | null }[] = [];
-
-        // Required fields with missing values
-        for (const field of run.template.fields) {
-          if (field.isRequired && (enrichedData[field.name] === null || enrichedData[field.name] === undefined || enrichedData[field.name] === '')) {
-            rowCollisions.push({ field: field.name, reason: 'missing_required', value: null });
+      // Retry loop
+      let lastError: any = null;
+      for (let attempt = 0; attempt <= MAX_ROW_RETRIES; attempt++) {
+        try {
+          if (attempt > 0) {
+            const delay = 1000 * Math.pow(2, attempt - 1); // 1s, 2s
+            console.log(`[Enrichment] Row ${currentRowIndex} retry ${attempt}/${MAX_ROW_RETRIES} after ${delay}ms`);
+            await new Promise(r => setTimeout(r, delay));
           }
-        }
 
-        // Enum violations — AI returned a value outside allowedValues
-        for (const v of enumViolations) {
-          rowCollisions.push({
-            field: v.field,
-            reason: 'invalid_enum_value',
-            value: `"${v.value}" not in [${v.allowedValues.join(', ')}]`,
+          const { enrichedData: rawEnriched, confidence, tokensUsed, uncertainFields } = await enrichItem(
+            row, templateFields, apiKey, catalogContext, fewShotExamples, categoryHint, liveExamples, knowledgeBlock
+          );
+
+          totalTokens += tokensUsed;
+          processedCount++;
+          confidenceSum += confidence;
+
+          await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed, model: 'gpt-4o-mini', purpose: 'enrichment' });
+          itemsEnrichedCounter.inc();
+          tokensConsumedCounter.inc(tokensUsed);
+
+          const { data: enrichedData, enumViolations } = postProcessEnrichedData(rawEnriched, templateFields);
+
+          // Detect collisions
+          const rowCollisions: { field: string; reason: string; value: string | null; suggestedValues?: string[] }[] = [];
+
+          for (const field of templateFields) {
+            if (field.isRequired && (enrichedData[field.name] === null || enrichedData[field.name] === undefined || enrichedData[field.name] === '')) {
+              rowCollisions.push({ field: field.name, reason: 'missing_required', value: null, suggestedValues: uncertainFields[field.name] });
+            }
+          }
+          for (const v of enumViolations) {
+            rowCollisions.push({ field: v.field, reason: 'invalid_enum_value', value: `"${v.value}" not in [${v.allowedValues.join(', ')}]`, suggestedValues: v.allowedValues });
+          }
+          for (const [fieldName, alternatives] of Object.entries(uncertainFields)) {
+            if (rowCollisions.some(c => c.field === fieldName)) continue;
+            rowCollisions.push({ field: fieldName, reason: 'low_confidence', value: enrichedData[fieldName] != null ? String(enrichedData[fieldName]) : null, suggestedValues: alternatives });
+          }
+
+          await withTenant(orgId, async (tx) => {
+            const [item] = await tx.insert(enrichedItems).values({
+              orgId, uploadId: uploadJobId, runId: enrichmentRunId,
+              skuExternalId: `row-${currentRowIndex}`,
+              rawData: JSON.stringify(row),
+              enrichedData: JSON.stringify(enrichedData),
+              confidence, status: rowCollisions.length > 0 ? 'collision' : 'ok',
+            }).returning();
+
+            if (rowCollisions.length > 0) {
+              collisionCount++;
+              for (const collision of rowCollisions) {
+                await tx.insert(collisions).values({
+                  orgId, jobId: uploadJobId, enrichedItemId: item.id,
+                  field: collision.field, originalValue: collision.value,
+                  suggestedValues: collision.suggestedValues?.length ? JSON.stringify(collision.suggestedValues) : null,
+                  reason: collision.reason, status: 'detected',
+                });
+              }
+            }
           });
-        }
 
-        await withTenant(orgId, async (tx) => {
-          const [item] = await tx.insert(enrichedItems).values({
-            orgId,
-            uploadId: uploadJobId,
-            runId: enrichmentRunId,
-            skuExternalId: `row-${rowIndex}`,
-            rawData: JSON.stringify(row),
-            enrichedData: JSON.stringify(enrichedData),
-            confidence,
-            status: rowCollisions.length > 0 ? 'collision' : 'ok',
-          }).returning();
+          // Accumulate live examples
+          if (rowCollisions.length === 0 && confidence >= 80) {
+            const examples = categoryExamples.get(catKey) || [];
+            examples.push({ input: row, output: enrichedData });
+            if (examples.length > 3) examples.shift();
+            categoryExamples.set(catKey, examples);
 
-          if (rowCollisions.length > 0) {
-            collisionCount++;
-            for (const collision of rowCollisions) {
-              await tx.insert(collisions).values({
-                orgId,
-                jobId: uploadJobId,
-                enrichedItemId: item.id,
-                field: collision.field,
-                originalValue: collision.value,
-                reason: collision.reason,
-                status: 'detected',
-              });
+            if (processedCount % 5 === 0) {
+              const productName = row.name || row['Имя [Ru]'] || row['Название'] || row.title || '';
+              if (productName) {
+                for (const key of ['brand', 'product_type', 'material', 'color']) {
+                  if (enrichedData[key] && String(enrichedData[key]).trim()) {
+                    saveConfirmedKnowledge(orgId, key, String(productName).slice(0, 200), String(enrichedData[key]), catKey !== '__default__' ? catKey : undefined);
+                  }
+                }
+              }
             }
           }
 
-          if (rowIndex % 10 === 0) {
-            await tx.update(enrichmentRuns)
-              .set({ processedItems: processedCount, tokensUsed: totalTokens })
-              .where(eq(enrichmentRuns.id, enrichmentRunId));
-          }
-        });
-
-      } catch (rowError: any) {
-        // Save failed row with original data preserved — guarantees every CSV row
-        // appears in the export even if AI enrichment failed for it.
-        failedCount++;
-        console.error(`[Enrichment] Row ${rowIndex} failed:`, rowError?.message || rowError);
-        try {
-          await withTenant(orgId, async (tx) => {
-            await tx.insert(enrichedItems).values({
-              orgId,
-              uploadId: uploadJobId,
-              runId: enrichmentRunId,
-              skuExternalId: `row-${rowIndex}`,
-              rawData: JSON.stringify(row),
-              enrichedData: JSON.stringify({}),
-              confidence: 0,
-              status: 'collision',
-            });
-          });
-        } catch (saveErr) {
-          console.error(`[Enrichment] Could not save failed row ${rowIndex}:`, saveErr);
+          return; // success — exit retry loop
+        } catch (err) {
+          lastError = err;
         }
+      }
+
+      // All retries exhausted — save as failed
+      failedCount++;
+      itemsFailedCounter.inc();
+      console.error(`[Enrichment] Row ${currentRowIndex} failed after ${MAX_ROW_RETRIES + 1} attempts:`, lastError?.message || lastError);
+      try {
+        await withTenant(orgId, async (tx) => {
+          await tx.insert(enrichedItems).values({
+            orgId, uploadId: uploadJobId, runId: enrichmentRunId,
+            skuExternalId: `row-${currentRowIndex}`,
+            rawData: JSON.stringify(row),
+            enrichedData: JSON.stringify({}),
+            confidence: 0, status: 'collision',
+          });
+        });
+      } catch (saveErr) {
+        console.error(`[Enrichment] Could not save failed row ${currentRowIndex}:`, saveErr);
       }
     }
 
-    // 4. Finalize
+    // 4. Process rows with concurrency
+    let batch: { row: any; idx: number }[] = [];
+
+    for await (const row of parser) {
+      rowIndex++;
+
+      // Checkpoint/resume: skip already-processed rows
+      if (rowIndex <= resumeFromRow) continue;
+
+      batch.push({ row, idx: rowIndex });
+
+      if (batch.length >= CONCURRENCY) {
+        // NOTE: categoryExamples Map is mutated by concurrent processRow calls within
+        // this batch. This is safe because Node.js is single-threaded — Map mutations
+        // happen between event loop ticks, so there is no data race. However, rows
+        // within the same batch may not see each other's examples (they read stale
+        // snapshots at the start of each call). This is acceptable: examples accumulate
+        // across batches, improving quality progressively.
+        await Promise.all(batch.map(({ row: r, idx }) => processRow(r, idx)));
+        batch = [];
+
+        // Save checkpoint every batch
+        await withTenant(orgId, async (tx) => {
+          await tx.update(enrichmentRuns)
+            .set({ processedItems: processedCount, tokensUsed: totalTokens, lastProcessedRowIndex: rowIndex })
+            .where(eq(enrichmentRuns.id, enrichmentRunId));
+        });
+      }
+    }
+
+    // Process remaining rows in the last partial batch
+    if (batch.length > 0) {
+      await Promise.all(batch.map(({ row: r, idx }) => processRow(r, idx)));
+    }
+
+    // Update quality metrics
+    if (processedCount > 0) {
+      avgConfidenceGauge.set(confidenceSum / processedCount);
+    }
+    if (processedCount + failedCount > 0) {
+      failedRatioGauge.set(failedCount / (processedCount + failedCount));
+    }
+
+    // 4. Verification pass — re-check low-confidence rows with gpt-4o
+    const lowConfidenceItems = await db.query.enrichedItems.findMany({
+      where: and(
+        eq(enrichedItems.runId, enrichmentRunId),
+        eq(enrichedItems.orgId, orgId)
+      )
+    });
+    const candidates = lowConfidenceItems.filter(i => i.confidence !== null && i.confidence < 70 && i.status !== 'collision');
+    const maxVerify = Math.floor(processedCount * 0.2); // max 20% of total
+    const toVerify = candidates.slice(0, Math.max(maxVerify, 1)); // at least 1 if any exist
+
+    if (toVerify.length > 0 && await checkBudget(orgId, toVerify.length * 50)) {
+      console.log(`[Enrichment] Verification pass: ${toVerify.length} low-confidence items (of ${candidates.length} candidates, max ${maxVerify})`);
+
+      for (const item of toVerify) {
+        try {
+          const rawRow = JSON.parse(item.rawData || '{}');
+          const currentData = JSON.parse(typeof item.enrichedData === 'string' ? item.enrichedData : JSON.stringify(item.enrichedData));
+
+          const result = await verifyEnrichedItem(rawRow, currentData, templateFields, apiKey, catalogContext);
+          totalTokens += result.tokensUsed;
+          await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed: result.tokensUsed, model: 'gpt-4o', purpose: 'verification' });
+
+          if (result.corrections.length > 0 || result.revisedConfidence > (item.confidence || 0)) {
+            // Apply corrections
+            const updatedData = { ...currentData };
+            for (const c of result.corrections) {
+              updatedData[c.field] = c.newValue;
+              console.log(`[Verification] ${item.skuExternalId} → ${c.field}: "${c.oldValue}" → "${c.newValue}" (${c.reason})`);
+            }
+
+            await withTenant(orgId, async (tx) => {
+              await tx.update(enrichedItems)
+                .set({
+                  enrichedData: JSON.stringify(updatedData),
+                  confidence: result.revisedConfidence,
+                  status: result.revisedConfidence >= 80 ? 'ok' : item.status,
+                })
+                .where(eq(enrichedItems.id, item.id));
+
+              // If revised confidence >= 80, remove existing low_confidence collisions for this item
+              if (result.revisedConfidence >= 80) {
+                const itemCollisions = await tx.query.collisions.findMany({
+                  where: and(
+                    eq(collisions.enrichedItemId, item.id),
+                    eq(collisions.reason, 'low_confidence'),
+                    eq(collisions.status, 'detected')
+                  )
+                });
+                for (const col of itemCollisions) {
+                  await tx.update(collisions)
+                    .set({ status: 'resolved', resolvedValue: updatedData[col.field] != null ? JSON.stringify(updatedData[col.field]) : null, resolvedAt: new Date() })
+                    .where(eq(collisions.id, col.id));
+                  collisionCount = Math.max(0, collisionCount - 1);
+                }
+              }
+            });
+          }
+        } catch (verifyErr) {
+          console.warn(`[Verification] Failed for item ${item.skuExternalId}:`, verifyErr);
+        }
+      }
+      console.log(`[Enrichment] Verification pass complete`);
+    }
+
+    // 5. Finalize
     await withTenant(orgId, async (tx) => {
       await tx.update(enrichmentRuns)
         .set({ 
@@ -578,6 +790,13 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
           status: 'pending',
         });
       }
+
+      // Trigger normalisation pass (runs before SEO, auto-fixes inconsistencies)
+      await normalisationQueue.add('normalisation', {
+        enrichmentRunId,
+        uploadJobId,
+        orgId,
+      });
 
       // Trigger SEO if enabled
       if (uploadJob.includeSeo) {
@@ -619,6 +838,143 @@ export const enrichmentWorker = new Worker<EnrichmentJobData>(
   { connection: redisConnection as any }
 );
 
+// --- Normalisation ---
+
+interface NormalisationJobData {
+  enrichmentRunId: string;
+  uploadJobId: string;
+  orgId: string;
+}
+
+export async function processNormalisationJob(job: Job<NormalisationJobData>) {
+  const { enrichmentRunId, uploadJobId, orgId } = job.data;
+  console.log(`[Normalisation] Starting for run ${enrichmentRunId}`);
+
+  try {
+    // 1. Load enriched items and schema fields
+    const run = await db.query.enrichmentRuns.findFirst({
+      where: and(eq(enrichmentRuns.id, enrichmentRunId), eq(enrichmentRuns.orgId, orgId)),
+      with: { template: { with: { fields: true } } }
+    });
+    if (!run?.template) {
+      console.warn('[Normalisation] Run or template not found, skipping');
+      return;
+    }
+
+    const items = await db.query.enrichedItems.findMany({
+      where: and(eq(enrichedItems.runId, enrichmentRunId), eq(enrichedItems.orgId, orgId))
+    });
+
+    if (items.length === 0) {
+      console.log('[Normalisation] No items to normalise');
+      return;
+    }
+
+    // 2. Analyse consistency
+    const parsedItems = items.map(item => ({
+      id: item.id,
+      enrichedData: typeof item.enrichedData === 'string' ? JSON.parse(item.enrichedData) : item.enrichedData,
+    }));
+
+    const consistencyResults = analyseFieldConsistency(parsedItems, run.template.fields);
+    console.log(`[Normalisation] Found ${consistencyResults.length} fields with inconsistencies`);
+
+    let autoFixCount = 0;
+    let collisionCount = 0;
+
+    for (const result of consistencyResults) {
+      for (const cluster of result.clusters) {
+        if (cluster.variants.length === 0) continue;
+
+        // Auto-fix: if the canonical has 3+ usages and variants are just case/whitespace differences
+        const isSimpleCaseDiff = cluster.variants.every(v =>
+          v.toLowerCase().replace(/\s+/g, ' ') === cluster.canonical.toLowerCase().replace(/\s+/g, ' ')
+        );
+
+        if (isSimpleCaseDiff) {
+          // Auto-normalise: update all items in the cluster to the canonical value
+          await withTenant(orgId, async (tx) => {
+            for (const itemId of cluster.itemIds) {
+              const item = items.find(i => i.id === itemId);
+              if (!item) continue;
+              const data: any = typeof item.enrichedData === 'string' ? JSON.parse(item.enrichedData) : JSON.parse(JSON.stringify(item.enrichedData));
+              if (data[result.field] && String(data[result.field]).trim() !== cluster.canonical) {
+                data[result.field] = cluster.canonical;
+                await tx.update(enrichedItems)
+                  .set({ enrichedData: JSON.stringify(data) })
+                  .where(eq(enrichedItems.id, itemId));
+                autoFixCount++;
+              }
+            }
+          });
+        } else {
+          // Create collision for manual review
+          const affectedItem = items.find(i => cluster.itemIds.includes(i.id));
+          if (affectedItem) {
+            await withTenant(orgId, async (tx) => {
+              await tx.insert(collisions).values({
+                orgId,
+                jobId: uploadJobId,
+                enrichedItemId: affectedItem.id,
+                field: result.field,
+                originalValue: cluster.variants[0],
+                suggestedValues: JSON.stringify([cluster.canonical, ...cluster.variants]),
+                reason: 'inconsistent_value',
+                status: 'detected',
+              });
+            });
+            collisionCount++;
+          }
+        }
+      }
+    }
+
+    console.log(`[Normalisation] Done. Auto-fixed: ${autoFixCount}, New collisions: ${collisionCount}`);
+
+    // If new collisions were created, update job status
+    if (collisionCount > 0) {
+      const uploadJob = await db.query.uploadJobs.findFirst({
+        where: and(eq(uploadJobs.id, uploadJobId), eq(uploadJobs.orgId, orgId))
+      });
+      if (uploadJob && uploadJob.status !== 'needs_collision_review') {
+        await withTenant(orgId, async (tx) => {
+          await tx.update(uploadJobs)
+            .set({ status: 'needs_collision_review', updatedAt: new Date() })
+            .where(eq(uploadJobs.id, uploadJobId));
+
+          // Create review task if there isn't one already pending
+          const existingTask = await tx.query.reviewTasks.findFirst({
+            where: and(
+              eq(reviewTasks.jobId, uploadJobId),
+              eq(reviewTasks.taskType, 'collision_review'),
+              eq(reviewTasks.status, 'pending')
+            )
+          });
+          if (!existingTask) {
+            await tx.insert(reviewTasks).values({
+              orgId,
+              jobId: uploadJobId,
+              taskType: 'collision_review',
+              status: 'pending',
+            });
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.error(`[Normalisation] Failed:`, err);
+    // Non-fatal — don't throw, pipeline continues
+  }
+}
+
+export const normalisationWorker = new Worker<NormalisationJobData>(
+  NORMALISATION_QUEUE,
+  processNormalisationJob,
+  { connection: redisConnection as any }
+);
+
+// --- SEO Generation ---
+
 export async function processSeoJob(job: Job<SeoJobData>) {
   const { seoTaskId, uploadJobId, enrichmentRunId, orgId, lang } = job.data;
   console.log(`[SEO] Starting task ${seoTaskId} for job ${uploadJobId}`);
@@ -655,7 +1011,7 @@ export async function processSeoJob(job: Job<SeoJobData>) {
     }
 
     // 2. Security: Fetch API key using AccessGrant
-    let apiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
+    let apiKey = process.env.OPENROUTER_API_KEY || '';
     if (job.data.accessGrantToken) {
         try {
             apiKey = await getProviderKey('openrouter', job.data.accessGrantToken);
@@ -663,6 +1019,9 @@ export async function processSeoJob(job: Job<SeoJobData>) {
         } catch (err) {
             console.error('[SEO] Failed to fetch secured key, falling back to env');
         }
+    }
+    if (!apiKey) {
+        throw new Error('[SEO] No API key available: set OPENROUTER_API_KEY env var or provide a valid AccessGrant token');
     }
 
     for (const item of items) {

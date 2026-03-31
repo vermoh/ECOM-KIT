@@ -1,5 +1,32 @@
 import { SchemaField } from '@ecom-kit/shared-types';
 
+/** Patterns that look like prompt injection attempts */
+const INJECTION_PATTERNS = /^(IGNORE|SYSTEM:|You are|Forget|Disregard)/im;
+
+/**
+ * Sanitize user-provided text before injecting into AI prompts.
+ * - Strips lines that look like prompt injection attempts
+ * - Truncates to maxLen characters
+ * - Escapes backticks and template literal syntax (${ })
+ */
+export function sanitizePromptInput(text: string, maxLen = 2000): string {
+  if (!text) return '';
+  // Remove lines that match injection patterns
+  const cleaned = text
+    .split('\n')
+    .filter(line => !INJECTION_PATTERNS.test(line.trim()))
+    .join('\n');
+  // Escape backticks and template literal expressions
+  const escaped = cleaned.replace(/`/g, "'").replace(/\$\{/g, '${');
+  // Truncate
+  return escaped.length > maxLen ? escaped.slice(0, maxLen) + '…[truncated]' : escaped;
+}
+
+/** Check whether an API key is a mock/test key */
+function isMockApiKey(apiKey: string): boolean {
+  return apiKey === 'sk-or-v1-mock-key' || apiKey.startsWith('mock-');
+}
+
 export interface CatalogAnalysis {
   categories: { name: string; attributes: string[]; exampleProducts: string[] }[];
   totalTokensUsed: number;
@@ -15,20 +42,20 @@ export async function analyseProductCatalog(
   apiKey: string,
   catalogContext?: string
 ): Promise<CatalogAnalysis> {
-  if (apiKey.includes('mock') || sampleRows.length === 0) {
+  if (isMockApiKey(apiKey) || sampleRows.length === 0) {
     return { categories: [], totalTokensUsed: 0 };
   }
 
   const rowsBlock = sampleRows.map((row, i) => {
     const lines = Object.entries(row)
       .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
-      .map(([k, v]) => `  ${k}: ${v}`)
+      .map(([k, v]) => `  ${k}: ${sanitizePromptInput(String(v))}`)
       .join('\n');
     return `--- Product ${i + 1} ---\n${lines}`;
   }).join('\n\n');
 
   const contextLine = catalogContext
-    ? `\nMERCHANT-PROVIDED DOMAIN CONTEXT:\n${catalogContext}\n`
+    ? `\nMERCHANT-PROVIDED DOMAIN CONTEXT:\n${sanitizePromptInput(catalogContext, 4000)}\n`
     : '';
 
   const prompt = `You are a senior product catalog analyst. Study the sample products below and identify ALL distinct product categories or niches present in this catalog.
@@ -111,7 +138,7 @@ export async function generateSchemaSuggestion(
   catalogAnalysis?: CatalogAnalysis
 ): Promise<{ fields: Partial<any>[]; tokensUsed: number }> {
   // Explicit dev/test mode — only use mock when key is intentionally fake
-  if (apiKey.includes('mock')) {
+  if (isMockApiKey(apiKey)) {
     console.log('[AI] Mock API key detected, returning fallback schema for dev/test');
     return { fields: _mockSchemaFallback(headers), tokensUsed: 0 };
   }
@@ -123,7 +150,7 @@ export async function generateSchemaSuggestion(
   const sampleBlock = sampleData.map((row, i) => {
     const lines = Object.entries(row)
       .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
-      .map(([k, v]) => `  ${k}: ${v}`)
+      .map(([k, v]) => `  ${k}: ${sanitizePromptInput(String(v))}`)
       .join('\n');
     return `--- Product ${i + 1} ---\n${lines}`;
   }).join('\n\n');
@@ -133,7 +160,7 @@ export async function generateSchemaSuggestion(
     : '';
 
   const contextBlock = catalogContext
-    ? `\nCATALOG DOMAIN CONTEXT (provided by the merchant):\n${catalogContext}\n`
+    ? `\nCATALOG DOMAIN CONTEXT (provided by the merchant):\n${sanitizePromptInput(catalogContext, 4000)}\n`
     : '';
 
   // Stage A analysis results — when available, gives the model a pre-analysed
@@ -173,19 +200,7 @@ THINK IN THESE DIMENSIONS:
 - Commercial: age_restriction, product_type, target use, certifications
 - Catalog: product_line, compatibility, pack_quantity, country_of_origin
 
-Respond ONLY with valid JSON:
-{
-  "fields": [
-    {
-      "name": "snake_case_key",
-      "label": "Human Readable Label",
-      "field_type": "text|number|boolean|enum",
-      "description": "What this field captures, how to infer it, and which categories it applies to",
-      "allowed_values": ["val1", "val2"]
-    }
-  ]
-}
-"allowed_values" only for enum fields. Omit for other types.`;
+Respond with a JSON object containing a "fields" array. Each field must include "name" (snake_case), "label", "field_type" (one of: text, number, boolean, enum, url), "description", and "allowed_values" (array of strings for enum fields, empty array [] otherwise).`;
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -197,10 +212,10 @@ Respond ONLY with valid JSON:
       model: 'openai/gpt-4o-mini',
       temperature: 0.2,
       messages: [
-        { role: 'system', content: 'You are a product data enrichment expert. Respond with valid JSON only, no markdown.' },
+        { role: 'system', content: 'You are a product data enrichment expert.' },
         { role: 'user', content: prompt }
       ],
-      response_format: { type: 'json_object' }
+      response_format: { type: 'json_schema', json_schema: SCHEMA_SUGGESTION_RESPONSE_SCHEMA }
     })
   });
 
@@ -221,9 +236,10 @@ Respond ONLY with valid JSON:
     throw new Error(`AI_PARSE_ERROR: Schema response is not valid JSON. Raw: ${content?.slice(0, 200)}`);
   }
 
-  const fields = parsed.fields ?? parsed.suggested_fields ?? parsed.schema ?? (Array.isArray(parsed) ? parsed : null);
+  // With structured outputs, the response is guaranteed to have "fields" array
+  const fields = parsed.fields;
   if (!Array.isArray(fields) || fields.length === 0) {
-    throw new Error(`AI_FORMAT_ERROR: Fields array missing or empty. Response keys: ${Object.keys(parsed).join(', ')}`);
+    throw new Error(`AI_FORMAT_ERROR: Fields array missing or empty.`);
   }
 
   const existingLower = new Set(headers.map(h => h.toLowerCase().replace(/[^a-z0-9_]/g, '_')));
@@ -260,13 +276,156 @@ function _mockSchemaFallback(headers: string[]): Partial<any>[] {
  * Generate 2-3 few-shot enrichment examples from actual catalog rows and confirmed schema.
  * Called once at the start of an enrichment run; result is reused for all rows.
  */
+/**
+ * Match a CSV row to one of the known categories from Stage A analysis.
+ * Uses explicit category column first, then keyword overlap scoring.
+ * Returns the matched category object or null.
+ */
+export function detectRowCategory(
+  row: any,
+  categories: CatalogAnalysis['categories']
+): CatalogAnalysis['categories'][0] | null {
+  if (!categories.length) return null;
+
+  // 1. Check explicit category column
+  const catField = row['Категория'] || row['категория'] || row['category'] || row['Category'] || row['type'] || row['Type'] || '';
+  const catValue = String(catField).toLowerCase().trim();
+
+  if (catValue) {
+    // Exact substring match against known category names
+    const exact = categories.find(c => {
+      const cLow = c.name.toLowerCase();
+      return cLow === catValue || catValue.includes(cLow) || cLow.includes(catValue);
+    });
+    if (exact) return exact;
+  }
+
+  // 2. Keyword overlap: build a text blob from the row, score against each category
+  const rowText = Object.values(row)
+    .filter(v => v !== null && v !== undefined)
+    .map(v => String(v).toLowerCase())
+    .join(' ');
+
+  let bestScore = 0;
+  let bestCat: CatalogAnalysis['categories'][0] | null = null;
+
+  for (const cat of categories) {
+    // Score = how many category keywords (name words + attributes) appear in row text
+    const keywords = [
+      ...cat.name.toLowerCase().split(/\s+/),
+      ...cat.attributes.map(a => a.toLowerCase()),
+    ];
+    const score = keywords.filter(kw => kw.length > 2 && rowText.includes(kw)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestCat = cat;
+    }
+  }
+
+  // Require at least 2 keyword matches to avoid false positives
+  return bestScore >= 2 ? bestCat : (categories[0] || null);
+}
+
+/**
+ * Build a category-specific hint from the Stage A analysis for a matched category.
+ * Injected into the enrichItem prompt to guide field extraction.
+ */
+export function buildCategoryHint(category: CatalogAnalysis['categories'][0] | null): string {
+  if (!category) return '';
+  return `\nPRODUCT CATEGORY DETECTED: ${category.name}\nKey attributes for this category: ${category.attributes.join(', ')}.\nPay special attention to these attributes when filling the fields below.\n`;
+}
+
+/** Static JSON Schema for generateSchemaSuggestion response */
+const SCHEMA_SUGGESTION_RESPONSE_SCHEMA = {
+  name: 'schema_suggestion',
+  strict: true,
+  schema: {
+    type: 'object',
+    properties: {
+      fields: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'snake_case field key' },
+            label: { type: 'string', description: 'Human-readable label' },
+            field_type: { type: 'string', enum: ['text', 'number', 'boolean', 'enum', 'url'] },
+            description: { type: 'string', description: 'What this field captures and which categories it applies to' },
+            allowed_values: { type: 'array', items: { type: 'string' }, description: 'Only for enum fields; empty array otherwise' },
+          },
+          required: ['name', 'label', 'field_type', 'description', 'allowed_values'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['fields'],
+    additionalProperties: false,
+  },
+};
+
+/**
+ * Build a JSON Schema object for the enrichItem response based on dynamic schema fields.
+ * Used with response_format: { type: "json_schema" } for guaranteed type correctness.
+ */
+function buildEnrichmentJsonSchema(schemaFields: any[]): any {
+  const enrichedProps: any = {};
+  const enrichedRequired: string[] = [];
+
+  for (const f of schemaFields) {
+    const type = f.fieldType || 'text';
+    enrichedRequired.push(f.name);
+
+    if (type === 'number') {
+      enrichedProps[f.name] = { type: 'number' };
+    } else if (type === 'boolean') {
+      enrichedProps[f.name] = { type: 'boolean' };
+    } else if (type === 'enum' && Array.isArray(f.allowedValues) && f.allowedValues.length > 0) {
+      enrichedProps[f.name] = { type: 'string', enum: f.allowedValues };
+    } else {
+      enrichedProps[f.name] = { type: 'string' };
+    }
+  }
+
+  return {
+    name: 'enriched_product',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        reasoning: { type: 'string' },
+        enriched_data: {
+          type: 'object',
+          properties: enrichedProps,
+          required: enrichedRequired,
+          additionalProperties: false,
+        },
+        confidence: { type: 'integer' },
+        uncertain_fields: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              field: { type: 'string' },
+              alternatives: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['field', 'alternatives'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['reasoning', 'enriched_data', 'confidence', 'uncertain_fields'],
+      additionalProperties: false,
+    },
+  };
+}
+
 export async function generateFewShotExamples(
   sampleRows: any[],
   schemaFields: any[],
   apiKey: string,
   catalogContext?: string
 ): Promise<string> {
-  if (apiKey.includes('mock') || sampleRows.length === 0 || schemaFields.length === 0) {
+  if (isMockApiKey(apiKey) || sampleRows.length === 0 || schemaFields.length === 0) {
     return '';
   }
 
@@ -281,12 +440,12 @@ export async function generateFewShotExamples(
   const rows = sampleRows.slice(0, 5).map((row, i) => {
     const lines = Object.entries(row)
       .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
-      .map(([k, v]) => `    ${k}: ${v}`)
+      .map(([k, v]) => `    ${k}: ${sanitizePromptInput(String(v))}`)
       .join('\n');
     return `  --- Product ${i + 1} ---\n${lines}`;
   }).join('\n\n');
 
-  const contextLine = catalogContext ? `\nCatalog domain: ${catalogContext}\n` : '';
+  const contextLine = catalogContext ? `\nCatalog domain: ${sanitizePromptInput(catalogContext, 4000)}\n` : '';
 
   const prompt = `You are preparing few-shot examples for an AI enrichment prompt.${contextLine}
 
@@ -360,8 +519,11 @@ export async function enrichItem(
   schemaFields: any[],
   apiKey: string,
   catalogContext?: string,
-  fewShotExamples?: string
-): Promise<{ enrichedData: any; confidence: number; tokensUsed: number }> {
+  fewShotExamples?: string,
+  categoryHint?: string,
+  liveExamples?: any[],
+  knowledgeBlock?: string
+): Promise<{ enrichedData: any; confidence: number; tokensUsed: number; uncertainFields: Record<string, string[]> }> {
   const fieldNames = schemaFields.map(f => f.name);
   const schemaDescription = schemaFields.map(f => {
     let desc = `- "${f.name}" (${f.fieldType || 'text'}): ${f.description || f.label || f.name}`;
@@ -375,21 +537,44 @@ export async function enrichItem(
   // as meaningful signal, regardless of how the CSV column was originally named.
   const rowContext = Object.entries(row)
     .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
-    .map(([k, v]) => `  ${k}: ${v}`)
+    .map(([k, v]) => `  ${k}: ${sanitizePromptInput(String(v))}`)
     .join('\n');
 
   const contextBlock = catalogContext
-    ? `\nCATALOG DOMAIN: ${catalogContext}\n`
+    ? `\nCATALOG DOMAIN: ${sanitizePromptInput(catalogContext, 4000)}\n`
     : '';
 
   const fewShotBlock = fewShotExamples
     ? `\nFEW-SHOT EXAMPLES (use these as reference for inference style, value format, and field coverage):\n${fewShotExamples}\n`
     : '';
 
+  const categoryBlock = categoryHint || '';
+
+  // Live examples: high-confidence enrichment results from the same category in this run
+  let liveExamplesBlock = '';
+  if (liveExamples && liveExamples.length > 0) {
+    const exLines = liveExamples.map((ex, i) => {
+      const inputLines = Object.entries(ex.input)
+        .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+        .slice(0, 5)
+        .map(([k, v]) => `    ${k}: ${sanitizePromptInput(String(v))}`)
+        .join('\n');
+      const outputLines = Object.entries(ex.output)
+        .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
+        .join('\n');
+      return `  --- Similar Product ${i + 1} ---\n  INPUT:\n${inputLines}\n  OUTPUT:\n${outputLines}`;
+    }).join('\n\n');
+    liveExamplesBlock = `\nPREVIOUSLY ENRICHED SIMILAR PRODUCTS (from this batch — use for consistency in brand names, value formats, and style):\n${exLines}\n`;
+  }
+
+  const kbBlock = knowledgeBlock
+    ? sanitizePromptInput(knowledgeBlock, 8000)
+    : '';
+
   const prompt = `You are an E-commerce product data enrichment engine. Your job is to fill in product attributes by extracting or intelligently inferring values from the raw product data.
-${contextBlock}
+${contextBlock}${categoryBlock}
 The product data may be in any language (including Russian). Read and understand EVERY field — product name, description, and category all contain important clues.
-${fewShotBlock}
+${kbBlock}${fewShotBlock}${liveExamplesBlock}
 RAW PRODUCT DATA:
 ${rowContext}
 
@@ -412,14 +597,9 @@ RULES:
 6. For text fields: return a concise string. Match the language of the input data.
 7. NEVER return null or omit a field. If genuinely unknown, return the most plausible default for this product type and niche.
 
-Return ONLY this JSON (no markdown):
-{
-  "reasoning": "<1-3 sentence analysis of product type, brand, and key specs>",
-  "enriched_data": {
-${fieldNames.map(n => `    "${n}": <value>`).join(',\n')}
-  },
-  "confidence": <integer 60-100>
-}`;
+STEP 3 — For any field where you are LESS THAN 80% certain of the value, add an entry to "uncertain_fields" array with 2-3 plausible alternatives. This helps the human reviewer pick the best option. If you are confident in all values, return an empty array [].`;
+
+  const enrichmentSchema = buildEnrichmentJsonSchema(schemaFields);
 
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -432,10 +612,10 @@ ${fieldNames.map(n => `    "${n}": <value>`).join(',\n')}
         model: 'openai/gpt-4o-mini',
         temperature: 0.2,
         messages: [
-          { role: 'system', content: 'You are a data enrichment engine with deep knowledge of e-commerce product catalogs. Always respond with valid JSON only, no markdown.' },
+          { role: 'system', content: 'You are a data enrichment engine with deep knowledge of e-commerce product catalogs.' },
           { role: 'user', content: prompt }
         ],
-        response_format: { type: 'json_object' }
+        response_format: { type: 'json_schema', json_schema: enrichmentSchema }
       })
     });
 
@@ -445,7 +625,7 @@ ${fieldNames.map(n => `    "${n}": <value>`).join(',\n')}
       console.warn('[AI] enrichItem: OpenRouter returned no choices:', JSON.stringify(data).slice(0, 300));
       
       // Fallback for E2E testing without real key
-      if (apiKey.includes('mock')) {
+      if (isMockApiKey(apiKey)) {
         console.log('[AI] Using Mock Enrichment fallback');
         // Copy the original CSV row data directly — schema field names may not
         // match CSV column names, so looking up row[f.name] is always undefined.
@@ -458,7 +638,8 @@ ${fieldNames.map(n => `    "${n}": <value>`).join(',\n')}
         return {
           enrichedData: mockEnriched,
           confidence: 95,
-          tokensUsed: 150
+          tokensUsed: 150,
+          uncertainFields: {}
         };
       }
       throw new Error(`AI_API_ERROR: ${data.error?.message || 'Unknown error'}`);
@@ -474,25 +655,33 @@ ${fieldNames.map(n => `    "${n}": <value>`).join(',\n')}
       throw new Error('AI_PARSE_ERROR: Response is not valid JSON');
     }
 
-    // Normalize: AI might return enriched data under different keys or at root level
-    let enrichedData: any = parsed.enriched_data ?? parsed.enrichedData ?? parsed.data ?? parsed.fields ?? null;
+    // With structured outputs, keys are guaranteed — but keep fallbacks for safety
+    const enrichedData = parsed.enriched_data ?? parsed.enrichedData ?? {};
 
-    if (!enrichedData || typeof enrichedData !== 'object' || Array.isArray(enrichedData)) {
-      // Fallback: treat the root object as the enriched data (excluding the confidence field)
-      const { confidence: _c, ...rest } = parsed;
-      if (Object.keys(rest).length > 0) {
-        console.warn('[AI] enrichItem: enriched_data key missing, using root object as enriched data');
-        enrichedData = rest;
-      } else {
-        enrichedData = {};
+    // Parse uncertain_fields: structured output returns array format
+    const uncertainFields: Record<string, string[]> = {};
+    const rawUncertain = parsed.uncertain_fields ?? parsed.uncertainFields;
+    if (Array.isArray(rawUncertain)) {
+      // Structured output format: [{ field: "name", alternatives: ["a", "b"] }]
+      for (const entry of rawUncertain) {
+        if (entry?.field && Array.isArray(entry.alternatives) && entry.alternatives.length > 0) {
+          uncertainFields[entry.field] = entry.alternatives.map(String);
+        }
+      }
+    } else if (rawUncertain && typeof rawUncertain === 'object') {
+      // Legacy format fallback: { field_name: ["a", "b"] }
+      for (const [k, v] of Object.entries(rawUncertain)) {
+        if (Array.isArray(v) && v.length > 0) {
+          uncertainFields[k] = v.map(String);
+        }
       }
     }
 
     return {
       enrichedData,
-      // Default to 70 (inferred) when AI omits confidence — avoid false collision flood
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 70,
-      tokensUsed: data.usage?.total_tokens || 0
+      tokensUsed: data.usage?.total_tokens || 0,
+      uncertainFields
     };
   } catch (error) {
     console.error('Error in enrichItem:', error);
@@ -501,8 +690,12 @@ ${fieldNames.map(n => `    "${n}": <value>`).join(',\n')}
 }
 
 /**
- * Coerce AI output to match declared field types and validate enum values.
- * Returns corrected data and a list of enum violations (value not in allowedValues).
+ * Post-process AI enrichment output.
+ * With structured outputs (json_schema), types are guaranteed by the API.
+ * This function handles:
+ * - Enum case normalization (AI may return correct value in wrong case)
+ * - Enum violation detection (value not in allowed set)
+ * - Light type coercion as safety net for non-structured fallbacks
  */
 export function postProcessEnrichedData(
   enrichedData: any,
@@ -517,30 +710,22 @@ export function postProcessEnrichedData(
 
     const type = field.fieldType || 'text';
 
-    if (type === 'number') {
-      const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[^\d.-]/g, ''));
+    // Safety net: coerce number/boolean if AI somehow returned wrong type
+    if (type === 'number' && typeof raw !== 'number') {
+      const num = Number(String(raw).replace(/[^\d.-]/g, ''));
       data[field.name] = isNaN(num) ? null : num;
-
-    } else if (type === 'boolean') {
-      if (typeof raw !== 'boolean') {
-        const s = String(raw).toLowerCase().trim();
-        data[field.name] = s === 'true' || s === '1' || s === 'yes' || s === 'да';
-      }
-
-    } else if (type === 'text' || type === 'url') {
-      data[field.name] = String(raw).trim();
-
+    } else if (type === 'boolean' && typeof raw !== 'boolean') {
+      const s = String(raw).toLowerCase().trim();
+      data[field.name] = s === 'true' || s === '1' || s === 'yes' || s === 'да';
     } else if (type === 'enum') {
+      // Enum case normalization + violation detection
       const allowed: string[] = Array.isArray(field.allowedValues) ? field.allowedValues : [];
       if (allowed.length > 0) {
         const actual = String(raw).trim();
-        const normalised = actual.toLowerCase();
-        // Exact case-insensitive match → normalise to canonical casing
-        const canonical = allowed.find(v => v.toLowerCase() === normalised);
+        const canonical = allowed.find(v => v.toLowerCase() === actual.toLowerCase());
         if (canonical) {
           data[field.name] = canonical;
         } else {
-          // Value not in allowed set — flag as violation
           enumViolations.push({ field: field.name, value: actual, allowedValues: allowed });
         }
       }
@@ -548,6 +733,220 @@ export function postProcessEnrichedData(
   }
 
   return { data, enumViolations };
+}
+
+export interface VerificationCorrection {
+  field: string;
+  oldValue: any;
+  newValue: any;
+  reason: string;
+}
+
+export interface VerificationResult {
+  corrections: VerificationCorrection[];
+  revisedConfidence: number;
+  tokensUsed: number;
+}
+
+/**
+ * Verification pass: use gpt-4o to review and correct low-confidence enrichment results.
+ * Called only for rows with confidence < 70, limited to 20% of total rows.
+ */
+export async function verifyEnrichedItem(
+  row: any,
+  enrichedData: any,
+  schemaFields: any[],
+  apiKey: string,
+  catalogContext?: string
+): Promise<VerificationResult> {
+  const rowContext = Object.entries(row)
+    .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+    .map(([k, v]) => `  ${k}: ${v}`)
+    .join('\n');
+
+  const enrichedContext = Object.entries(enrichedData)
+    .map(([k, v]) => `  ${k}: ${JSON.stringify(v)}`)
+    .join('\n');
+
+  const fieldDescriptions = schemaFields.map(f => {
+    let desc = `- "${f.name}" (${f.fieldType || 'text'}): ${f.description || f.label || f.name}`;
+    if (Array.isArray(f.allowedValues) && f.allowedValues.length) {
+      desc += `. Allowed: ${f.allowedValues.join(', ')}`;
+    }
+    return desc;
+  }).join('\n');
+
+  const contextLine = catalogContext ? `\nCatalog domain: ${catalogContext}\n` : '';
+
+  const prompt = `You are a senior product data quality reviewer. An AI enrichment engine has filled in product attributes, but the results have LOW CONFIDENCE. Your job is to review each value and correct any errors.
+${contextLine}
+ORIGINAL PRODUCT DATA:
+${rowContext}
+
+AI-GENERATED ENRICHED VALUES (review these):
+${enrichedContext}
+
+FIELD DEFINITIONS:
+${fieldDescriptions}
+
+TASK:
+For each enriched field, evaluate:
+1. Is the value plausible given the original product data?
+2. Is there a better value that can be extracted or inferred?
+3. Is the value the correct type (number as number, boolean as true/false)?
+
+Return corrections for ANY field that is wrong or can be improved. If a field is correct, do NOT include it.
+Also provide a revised overall confidence score (60-100) reflecting the quality after your corrections.`;
+
+  const verificationSchema = {
+    name: 'verification_result',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        corrections: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              field: { type: 'string' },
+              old_value: { type: 'string' },
+              new_value: { type: 'string' },
+              reason: { type: 'string' },
+            },
+            required: ['field', 'old_value', 'new_value', 'reason'],
+            additionalProperties: false,
+          },
+        },
+        revised_confidence: { type: 'integer' },
+      },
+      required: ['corrections', 'revised_confidence'],
+      additionalProperties: false,
+    },
+  };
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o',
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: 'You are a data quality reviewer. Review AI-generated product data and correct errors.' },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_schema', json_schema: verificationSchema }
+      })
+    });
+
+    const data = await response.json() as any;
+    if (!data.choices || data.choices.length === 0) {
+      console.warn('[AI] verifyEnrichedItem: no choices returned');
+      return { corrections: [], revisedConfidence: 0, tokensUsed: 0 };
+    }
+
+    const content = data.choices[0].message.content;
+    let parsed: any;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      console.warn('[AI] verifyEnrichedItem: failed to parse response');
+      return { corrections: [], revisedConfidence: 0, tokensUsed: data.usage?.total_tokens || 0 };
+    }
+
+    const corrections: VerificationCorrection[] = (parsed.corrections || []).map((c: any) => ({
+      field: c.field,
+      oldValue: c.old_value,
+      newValue: c.new_value,
+      reason: c.reason,
+    }));
+
+    return {
+      corrections,
+      revisedConfidence: typeof parsed.revised_confidence === 'number' ? parsed.revised_confidence : 70,
+      tokensUsed: data.usage?.total_tokens || 0,
+    };
+  } catch (err) {
+    console.error('[AI] verifyEnrichedItem failed:', err);
+    return { corrections: [], revisedConfidence: 0, tokensUsed: 0 };
+  }
+}
+
+export interface ConsistencyCluster {
+  canonical: string;
+  variants: string[];
+  itemIds: string[];
+}
+
+export interface FieldConsistencyResult {
+  field: string;
+  clusters: ConsistencyCluster[];
+}
+
+/**
+ * Analyse enriched items for value consistency across text fields.
+ * Groups similar values (case differences, whitespace, minor typos) into clusters.
+ * No external dependencies — uses case-insensitive grouping + simple similarity.
+ */
+export function analyseFieldConsistency(
+  items: { id: string; enrichedData: any }[],
+  schemaFields: any[]
+): FieldConsistencyResult[] {
+  const textFields = schemaFields.filter(f => (f.fieldType || 'text') === 'text');
+  const results: FieldConsistencyResult[] = [];
+
+  for (const field of textFields) {
+    // Collect all values for this field: normalized key → { original variants, item IDs }
+    const groups = new Map<string, { variants: Map<string, number>; itemIds: string[] }>();
+    type GroupEntry = { variants: Map<string, number>; itemIds: string[] };
+
+    for (const item of items) {
+      const data = typeof item.enrichedData === 'string' ? JSON.parse(item.enrichedData) : item.enrichedData;
+      const val = data?.[field.name];
+      if (val === null || val === undefined || String(val).trim() === '') continue;
+
+      const original = String(val).trim();
+      // Normalize: lowercase, collapse whitespace, strip trailing punctuation
+      const key = original.toLowerCase().replace(/\s+/g, ' ').replace(/[.\-_]+$/g, '');
+
+      const group: GroupEntry = groups.get(key) || { variants: new Map<string, number>(), itemIds: [] as string[] };
+      group.variants.set(original, (group.variants.get(original) || 0) + 1);
+      group.itemIds.push(item.id);
+      groups.set(key, group);
+    }
+
+    // Build clusters from groups that have multiple variant spellings
+    const clusters: ConsistencyCluster[] = [];
+    for (const group of groups.values()) {
+      if (group.variants.size <= 1) continue; // All consistent, skip
+
+      // Pick the most frequent variant as canonical
+      let maxCount = 0;
+      let canonical = '';
+      for (const [variant, count] of group.variants) {
+        if (count > maxCount) {
+          maxCount = count;
+          canonical = variant;
+        }
+      }
+
+      clusters.push({
+        canonical,
+        variants: [...group.variants.keys()].filter(v => v !== canonical),
+        itemIds: group.itemIds,
+      });
+    }
+
+    if (clusters.length > 0) {
+      results.push({ field: field.name, clusters });
+    }
+  }
+
+  return results;
 }
 
 export async function generateSeoAttributes(
@@ -590,7 +989,7 @@ export async function generateSeoAttributes(
     
     if (!data.choices || data.choices.length === 0) {
       console.warn('[AI] OpenRouter returned no choices or error for SEO:', JSON.stringify(data));
-      if (apiKey.includes('mock')) {
+      if (isMockApiKey(apiKey)) {
         console.log('[AI] Using Mock SEO fallback');
         return {
           seoData: {

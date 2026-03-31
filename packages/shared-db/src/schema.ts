@@ -221,6 +221,7 @@ export const schemaTemplates = pgTable('schema_templates', {
   confirmedBy: uuid('confirmed_by').references(() => users.id),
   confirmedAt: timestamp('confirmed_at'),
   aiModel: text('ai_model').notNull(),
+  catalogAnalysis: text('catalog_analysis'), // JSON: CatalogAnalysis from Stage A
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -260,6 +261,7 @@ export const enrichmentRuns = pgTable('enrichment_runs', {
   processedItems: integer('processed_items').default(0).notNull(),
   failedItems: integer('failed_items').default(0).notNull(),
   tokensUsed: integer('tokens_used').default(0).notNull(),
+  lastProcessedRowIndex: integer('last_processed_row_index').default(0).notNull(),
   startedAt: timestamp('started_at'),
   completedAt: timestamp('completed_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -288,6 +290,7 @@ export const collisions = pgTable('collisions', {
   enrichedItemId: uuid('enriched_item_id').notNull().references(() => enrichedItems.id),
   field: text('field').notNull(),
   originalValue: text('original_value'), // value from AI
+  suggestedValues: text('suggested_values'), // JSON array of alternative candidate values
   resolvedValue: text('resolved_value'), // value after human review
   reason: text('reason').notNull(), // 'low_confidence', 'missing_required', 'invalid_format'
   status: collisionStatusEnum('status').default('detected').notNull(),
@@ -424,6 +427,29 @@ export const exportJobsRelations = relations(exportJobs, ({ one }) => ({
   user: one(users, {
     fields: [exportJobs.requestedBy],
     references: [users.id],
+  }),
+}));
+
+// --- Cross-org enrichment knowledge base ---
+
+export const knowledgeSourceEnum = pgEnum('knowledge_source', ['correction', 'confirmed']);
+
+export const enrichmentKnowledge = pgTable('enrichment_knowledge', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id), // who contributed
+  fieldName: text('field_name').notNull(),
+  productCategory: text('product_category'), // category from catalog analysis
+  inputContext: text('input_context').notNull(), // product name/description snippet
+  aiValue: text('ai_value'), // what AI originally returned
+  correctValue: text('correct_value').notNull(), // the correct/confirmed value
+  source: knowledgeSourceEnum('source').notNull(), // 'correction' or 'confirmed'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const enrichmentKnowledgeRelations = relations(enrichmentKnowledge, ({ one }) => ({
+  org: one(organizations, {
+    fields: [enrichmentKnowledge.orgId],
+    references: [organizations.id],
   }),
 }));
 

@@ -70,19 +70,16 @@
 > ~1 день. Изменения в `ai.ts` и `worker.ts`.
 
 ### 3.1 Определение категории строки
-- [ ] Добавить функцию `detectRowCategory(row, knownCategories)` в `ai.ts`
-- [ ] Логика: сначала проверить явное поле категории, затем fuzzy-match по названию/описанию
-- [ ] Результат кешировать в память воркера (одна категория → один ключ)
+- [x] Добавить функцию `detectRowCategory(row, knownCategories)` в `ai.ts`
+- [x] Логика: сначала проверить явное поле категории, затем keyword overlap scoring по названию/описанию
+- [x] Результат кешировать в `categoryHintCache` воркера (одна категория → один hint)
 
-### 3.2 Category-specific system prompts
-- [ ] Создать файл `apps/csv-service-worker/src/lib/category-prompts.ts`
-- [ ] Определить `systemPromptFor(category: string): string` — возвращает специализированный system prompt
-  - Vape devices: *"Expert in electronic cigarettes, pod systems, disposables. You know puff counts, resistance, battery capacity by model name."*
-  - E-liquids: *"Expert in vape liquids. You know VG/PG ratios, nicotine salt vs freebase, standard volumes (10ml, 30ml, 60ml)."*
-  - Glass/accessories: *"Expert in smoking accessories. You know joint sizes (14.5mm, 18.8mm), glass types, percolator designs."*
-  - Tobacco/papers: *"Expert in rolling tobacco and accessories. You know tobacco cuts, paper sizes, filter types."*
-  - Default: универсальный промпт
-- [ ] Передавать соответствующий system prompt в `enrichItem`
+### 3.2 Category-specific system prompts → АДАПТИРОВАНО: динамические hints из Stage A анализа
+- [x] ~~Хардкод промптов~~ → `buildCategoryHint(category)` строит hint из `CatalogAnalysis`
+- [x] `catalogAnalysis` сохраняется в `schemaTemplates.catalog_analysis` при генерации схемы
+- [x] Загружается в `processEnrichmentJob`, матчится к каждой строке через `detectRowCategory`
+- [x] Инжектируется как `PRODUCT CATEGORY DETECTED: ... Key attributes: ...` блок в промпт `enrichItem`
+- [x] Полностью универсальный — работает с любыми товарами без хардкода
 
 **Проверка:** `Pod VAPORESSO XROS 5 MINI` — `battery_mah`, `resistance_ohm`, `refillable` должны заполняться корректно.
 
@@ -92,15 +89,16 @@
 > ~0.5 дня. Изменения только в `ai.ts`.
 
 ### 4.1 JSON Schema для enrichItem
-- [ ] Добавить функцию `buildJsonSchema(schemaFields)` → JSON Schema объект
-- [ ] Поддержать маппинг: `text` → `string`, `number` → `number`, `boolean` → `boolean`, `enum` → `string` с `enum: [...]`
-- [ ] Передавать как `response_format: { type: "json_schema", json_schema: { name: "enriched_product", schema: {...}, strict: true } }`
-- [ ] Убрать постобработку нормализации типов (станет ненужной — OpenAI гарантирует типы)
-- [ ] Оставить `postProcessEnrichedData` только для enum case-normalization
+- [x] Добавить функцию `buildEnrichmentJsonSchema(schemaFields)` → JSON Schema объект
+- [x] Маппинг: `text` → `string`, `number` → `number`, `boolean` → `boolean`, `enum` → `string` с `enum: [...]`
+- [x] `response_format: { type: "json_schema", json_schema: { name: "enriched_product", strict: true, schema: {...} } }`
+- [x] `uncertain_fields` переведён в array формат `[{ field, alternatives }]` для совместимости со strict mode
+- [x] `postProcessEnrichedData` упрощён — типы гарантированы, оставлены safety net + enum case-normalization
 
 ### 4.2 JSON Schema для generateSchemaSuggestion
-- [ ] Аналогично добавить строгую схему для ответа: `{ fields: [{ name, label, field_type, description, allowed_values? }] }`
-- [ ] Убрать нормализацию ключей (`raw.field_name ?? raw.fieldName ?? ...`) — она больше не нужна
+- [x] Статическая схема `SCHEMA_SUGGESTION_RESPONSE_SCHEMA` с strict: true
+- [x] `allowed_values` теперь обязательный (пустой массив для non-enum) — совместимо со strict mode
+- [x] Убрана нормализация ключей (`parsed.suggested_fields ?? parsed.schema ?? ...`) — формат гарантирован
 
 **Проверка:** число ошибок парсинга в логах должно стать 0. Тип `number` возвращается как число, а не строка.
 
@@ -110,19 +108,14 @@
 > ~1.5 дня. Изменения в `worker.ts` и `ai.ts`. Требует хранения промежуточных данных.
 
 ### 5.1 Накопление примеров во время обогащения
-- [ ] В `processEnrichmentJob` добавить `Map<string, any[]> categoryExamples` (category → последние 3 enriched row)
-- [ ] После каждой успешной строки: если `enrichedItem.status === 'ok'` и `confidence >= 80` — добавить в `categoryExamples[category]`
-- [ ] Ограничить размер: не более 3 примеров на категорию
+- [x] В `processEnrichmentJob` добавить `Map<string, any[]> categoryExamples` (category → последние 3 enriched row)
+- [x] После каждой успешной строки: если `rowCollisions.length === 0` и `confidence >= 80` — добавить в `categoryExamples[category]`
+- [x] Ограничить размер: не более 3 примеров на категорию (FIFO — shift при overflow)
 
 ### 5.2 Передача примеров в enrichItem
-- [ ] Обновить сигнатуру: `enrichItem(row, schemaFields, apiKey, examples?)`
-- [ ] Если `examples` переданы — добавить в промпт:
-  ```
-  EXAMPLES OF CORRECTLY ENRICHED SIMILAR PRODUCTS:
-  [JSON of 2-3 examples]
-  Use these as reference for style, values, and inference patterns.
-  ```
-- [ ] Примеры берутся из той же категории что и текущая строка
+- [x] Обновить сигнатуру: `enrichItem(..., liveExamples?)`
+- [x] Если `liveExamples` переданы — добавить в промпт блок `PREVIOUSLY ENRICHED SIMILAR PRODUCTS` с input/output парами
+- [x] Примеры берутся из `categoryExamples[catKey]` — той же категории что и текущая строка
 
 **Проверка:** для серии продуктов одного бренда (`Elf Bar Lux 800`, `Elf Bar Lux 1500`) значения `brand`, `product_line` должны быть идентичными.
 
@@ -132,19 +125,20 @@
 > ~1 день. Новый пост-процессинг шаг, новый тип BullMQ job.
 
 ### 6.1 Анализ консистентности
-- [ ] Добавить функцию `analyseFieldConsistency(enrichedItems, schemaFields)` в `ai.ts`
-- [ ] Для каждого текстового поля: собрать все уникальные значения
-- [ ] Кластеризовать похожие значения через fuzzy-matching (библиотека `fastest-levenshtein` или аналог)
-- [ ] Вернуть: `{ field, clusters: [{ canonical, variants: string[], rowIds: string[] }] }`
+- [x] Добавить функцию `analyseFieldConsistency(items, schemaFields)` в `ai.ts`
+- [x] Для каждого текстового поля: собрать все уникальные значения
+- [x] Кластеризация через case-insensitive grouping + whitespace normalization (без внешних зависимостей)
+- [x] Возвращает: `FieldConsistencyResult[]` с `{ field, clusters: [{ canonical, variants, itemIds }] }`
 
 ### 6.2 Авто-нормализация очевидных случаев
-- [ ] Если кластер имеет 1 вариант и ≥3 строки — считать его каноническим, обновить все строки
-- [ ] Если вариантов несколько — создать `collision` с `reason: 'inconsistent_value'` для ревью пользователем
+- [x] Если варианты отличаются только регистром/пробелами — авто-фикс к каноническому (самому частому) значению
+- [x] Если отличия существенные — создать `collision` с `reason: 'inconsistent_value'` + suggestedValues для ревью
 
 ### 6.3 Новый воркер-шаг `normalisation`
-- [ ] Добавить очередь `normalisation` в `worker.ts`
-- [ ] Запускать после завершения enrichment run (до SEO)
-- [ ] UI: показывать статус нормализации в прогрессе задачи
+- [x] Добавить очередь `NORMALISATION_QUEUE` + `normalisationQueue` + `normalisationWorker` в `worker.ts`
+- [x] `processNormalisationJob`: загружает все enrichedItems, запускает анализ, авто-фиксит или создаёт коллизии
+- [x] Запускается из finalize-секции `processEnrichmentJob` (после enrichment, перед SEO)
+- [x] Non-fatal: при ошибке не ломает pipeline (catch без throw)
 
 **Проверка:** `Vaporesso`, `VAPORESSO`, `vaporesso` в поле `brand` должны стать единым значением.
 
@@ -153,23 +147,21 @@
 ## Спринт 7 — Обратная связь из ревью (self-improving pipeline)
 > ~2 дня. Новые таблицы в БД, изменения в API и воркере.
 
-### 7.1 Сохранение правок пользователя
-- [ ] Добавить таблицу `enrichment_corrections` в схему БД:
-  ```sql
-  id, org_id, field_name, product_category, ai_value, corrected_value, created_at
-  ```
-- [ ] Запускать миграцию
-- [ ] В endpoint `POST /collisions/:id/resolve` — при сохранении resolved value записывать в `enrichment_corrections`
+### 7.1 Сохранение правок пользователя → РАСШИРЕНО: кросс-орг база знаний
+- [x] Добавить таблицу `enrichment_knowledge` (кросс-орг): `id, org_id, field_name, product_category, input_context, ai_value, correct_value, source (correction|confirmed), created_at`
+- [x] Миграция применена (`pnpm push`)
+- [x] В `POST /collisions/:id/resolve` — при resolve записывает correction в knowledge base (с input_context из rawData)
+- [x] В worker — каждый 5й high-confidence результат сохраняется как `confirmed` знание (brand, product_type, material, color)
 
 ### 7.2 Использование правок как few-shot примеров
-- [ ] Добавить функцию `loadCorrections(orgId, category, fieldName, limit = 3)` в `lib/budget.ts` или отдельный файл
-- [ ] Вызывать из воркера перед обогащением, передавать как additional few-shot в промпт
-- [ ] Формат в промпте: *"Previous corrections by your team: AI said X, correct answer was Y"*
+- [x] Добавить модуль `apps/csv-service-worker/src/lib/knowledge.ts`: `loadKnowledge()`, `saveConfirmedKnowledge()`, `formatKnowledgeForPrompt()`
+- [x] `loadKnowledge(fieldNames)` — кросс-орг запрос, приоритет corrections → confirmed, дедупликация
+- [x] `formatKnowledgeForPrompt()` — формирует блок `KNOWLEDGE BASE` с секциями CORRECTIONS и CONFIRMED VALUES
+- [x] Загружается 1 раз в начале enrichment run, инжектируется в каждый `enrichItem` вызов
 
 ### 7.3 Анализ паттернов правок
-- [ ] Добавить endpoint `GET /billing/usage/corrections` — возвращает топ-10 полей с наибольшим числом правок
-- [ ] Отображать на странице Billing как *"Fields most frequently corrected"*
-- [ ] Это сигнал что поле плохо описано или AI не справляется — подсказка пересмотреть схему
+- [x] Добавить endpoint `GET /knowledge/stats` — топ-15 полей с наибольшим числом corrections + общее количество записей
+- [ ] Отображать на странице Billing/Settings (UI — отложено)
 
 **Проверка:** после 5 ручных правок поля `brand` следующий запуск должен использовать их как примеры и перестать ошибаться на тех же продуктах.
 
@@ -179,19 +171,22 @@
 > ~1 день. Дополнительный AI-вызов только для low-confidence строк.
 
 ### 8.1 Идентификация кандидатов для проверки
-- [ ] После основного enrichment прохода — собрать строки с `confidence < 70`
-- [ ] Лимит: не более 20% от общего числа строк (чтобы контролировать стоимость)
+- [x] После основного enrichment прохода — собрать строки с `confidence < 70`
+- [x] Лимит: не более 20% от общего числа строк (минимум 1 если есть кандидаты)
+- [x] Budget check перед запуском — пропускается если бюджет недостаточен
 
 ### 8.2 Verification промпт
-- [ ] Добавить функцию `verifyEnrichedItem(row, enrichedData, schemaFields, apiKey)` в `ai.ts`
-- [ ] Модель: `gpt-4o` (лучшее рассуждение для неоднозначных случаев)
-- [ ] Промпт: *"Review these enriched values for accuracy. For each field: is the value plausible? If not, provide the correct value and explain why."*
-- [ ] Возвращать: `{ corrections: [{ field, oldValue, newValue, reason }], revisedConfidence }`
+- [x] Добавить функцию `verifyEnrichedItem(row, enrichedData, schemaFields, apiKey, catalogContext?)` в `ai.ts`
+- [x] Модель: `gpt-4o` (лучшее рассуждение), `temperature: 0.1`
+- [x] Structured output (json_schema, strict: true): `{ corrections: [{ field, old_value, new_value, reason }], revised_confidence }`
+- [x] Принимает `catalogContext` для доменного контекста
 
 ### 8.3 Применение поправок
-- [ ] Обновить `enrichedData` в БД для исправленных полей
-- [ ] Обновить `confidence` на `revisedConfidence`
-- [ ] Если `revisedConfidence >= 80` — убрать существующие коллизии по этой строке
+- [x] Обновить `enrichedData` в БД для каждого correction
+- [x] Обновить `confidence` на `revisedConfidence`
+- [x] Если `revisedConfidence >= 80` — status → `ok`, resolve все `low_confidence` коллизии по этому item
+- [x] Логирование каждой коррекции: `[Verification] row-3 → brand: "lenovo" → "Lenovo" (reason)`
+- [x] Budget consumed per verification call as `purpose: 'verification'`
 
 **Проверка:** строка `Мундштук груша жен. Слим - 100` (минимум данных) — после verification pass значения должны стать точнее.
 
@@ -199,10 +194,10 @@
 
 ## Технический долг (параллельно, без приоритета)
 
-- [ ] **Параллельное обогащение** — запускать N строк одновременно (Promise.all с concurrency limit 5), сократит время обработки в 5x. Аккуратно с порядком rowIndex.
-- [ ] **Retry с exponential backoff на уровне строки** — сейчас ошибка строки сохраняется как failed без retry. Добавить 2 retry с задержкой перед финальным сохранением как failed.
-- [ ] **Checkpoint/resume** — сохранять `lastProcessedRowIndex` в `enrichmentRuns`, при BullMQ retry начинать с него, а не с начала.
-- [ ] **Метрики качества** — добавить в Prometheus: среднее confidence по запуску, процент failed строк, распределение `_enrichment_status`.
+- [x] **Параллельное обогащение** — `CONCURRENCY = 5`, batch из 5 строк обрабатывается через `Promise.all`. Checkpoint сохраняется после каждого batch. `rowIndex` детерминирован (абсолютный счётчик из CSV-потока).
+- [x] **Retry с exponential backoff на уровне строки** — `MAX_ROW_RETRIES = 2`, backoff 1s → 2s. После 3 неудачных попыток строка сохраняется как failed с `confidence: 0`.
+- [x] **Checkpoint/resume** — `lastProcessedRowIndex` в `enrichmentRuns`. При BullMQ retry строки до checkpoint пропускаются. Checkpoint обновляется после каждого batch.
+- [x] **Метрики качества** — `csv_worker_avg_confidence` (Gauge), `csv_worker_failed_ratio` (Gauge), `csv_worker_items_failed_total` (Counter). Обновляются в конце enrichment run.
 
 ---
 
