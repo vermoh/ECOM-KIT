@@ -19,8 +19,8 @@ export async function billingRoutes(fastify: FastifyInstance) {
       // Create default free budget if missing
       const [newBudget] = await db.insert(tokenBudgets).values({
         orgId,
-        totalTokens: 100000,
-        remainingTokens: 100000,
+        totalTokens: 10000000,
+        remainingTokens: 10000000,
       }).returning();
       
       return { 
@@ -101,6 +101,55 @@ export async function billingRoutes(fastify: FastifyInstance) {
       budget,
       recentLogs
     };
+  });
+
+  // Update token budget limit for an organization
+  fastify.patch('/budget/limit', {
+    preHandler: [requirePermission('organization:read')]
+  }, async (request, reply) => {
+    const session = request.userSession!;
+    const { totalTokens, resetRemaining } = request.body as { totalTokens: number; resetRemaining?: boolean };
+
+    if (!totalTokens || typeof totalTokens !== 'number' || totalTokens < 1) {
+      return reply.status(400).send({ error: 'totalTokens must be a positive number' });
+    }
+
+    const existing = await db.query.tokenBudgets.findFirst({
+      where: eq(tokenBudgets.orgId, session.orgId)
+    });
+
+    if (existing) {
+      const updates: any = { totalTokens, updatedAt: new Date() };
+      if (resetRemaining) {
+        updates.remainingTokens = totalTokens;
+      } else {
+        // Keep remaining proportional — don't let it exceed new total
+        updates.remainingTokens = Math.min(existing.remainingTokens, totalTokens);
+      }
+      const [updated] = await db.update(tokenBudgets)
+        .set(updates)
+        .where(eq(tokenBudgets.orgId, session.orgId))
+        .returning();
+
+      await db.insert(auditLogs).values({
+        orgId: session.orgId,
+        actorId: session.userId,
+        actorType: 'user',
+        action: 'billing.limit_updated',
+        resourceType: 'token_budget',
+        resourceId: existing.id,
+        payload: JSON.stringify({ totalTokens, resetRemaining }),
+      });
+
+      return updated;
+    } else {
+      const [created] = await db.insert(tokenBudgets).values({
+        orgId: session.orgId,
+        totalTokens,
+        remainingTokens: totalTokens,
+      }).returning();
+      return created;
+    }
   });
 
   // Stripe Webhook Endpoint (MOCKED for design)

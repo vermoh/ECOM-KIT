@@ -149,6 +149,7 @@ export const uploadJobs = pgTable('upload_jobs', {
   originalFilename: text('original_filename').notNull(),
   rowCount: integer('row_count'),
   includeSeo: boolean('include_seo').default(false).notNull(),
+  catalogContext: text('catalog_context'),
   errorDetails: text('error_details'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

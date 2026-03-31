@@ -13,7 +13,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
   fastify.post('/projects/:projectId/uploads', async (request, reply) => {
     const session = request.userSession!;
     const { projectId } = request.params as { projectId: string };
-    const { filename, includeSeo } = request.body as { filename: string; includeSeo?: boolean };
+    const { filename, includeSeo, catalogContext } = request.body as { filename: string; includeSeo?: boolean; catalogContext?: string };
 
     if (!hasPermission(session, 'upload:create')) {
       return reply.status(403).send({ error: 'Forbidden: upload:create required' });
@@ -48,6 +48,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         s3Key,
         originalFilename: filename,
         includeSeo: includeSeo || false,
+        catalogContext: catalogContext || null,
       }).returning();
     });
 

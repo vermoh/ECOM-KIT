@@ -7,7 +7,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { parse } from 'csv-parse';
 import { stringify } from 'csv-stringify/sync';
 import { Readable } from 'stream';
-import { generateSchemaSuggestion, enrichItem, generateSeoAttributes } from './lib/ai';
+import { analyseProductCatalog, generateSchemaSuggestion, enrichItem, generateFewShotExamples, generateSeoAttributes, postProcessEnrichedData } from './lib/ai';
 import { checkBudget, consumeBudget } from './lib/budget';
 import * as client from 'prom-client';
 import http from 'node:http';
@@ -194,16 +194,35 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
         .where(eq(uploadJobs.id, uploadJobId));
     });
 
-    // 1. Get sample data from S3
+    // 1. Get sample data from S3 — read up to 40 rows to capture product variety
     const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
     const response = await s3Client.send(command);
-    const parser = (response.Body as Readable).pipe(parse({ columns: true, to_line: 5 }));
-    
-    const sampleRows: any[] = [];
+    const parser = (response.Body as Readable).pipe(parse({ columns: true, to_line: 40 }));
+
+    const allSampleRows: any[] = [];
     for await (const row of parser) {
-      sampleRows.push(row);
+      allSampleRows.push(row);
     }
-    const headers = Object.keys(sampleRows[0] || {});
+    const headers = Object.keys(allSampleRows[0] || {});
+
+    // Deduplicate by category to maximise variety in the AI prompt (up to 3 rows per category)
+    const categoryKey = headers.find(h => /categor|катег|type|тип/i.test(h));
+    const seenCategories = new Map<string, number>();
+    const sampleRows: any[] = [];
+    for (const row of allSampleRows) {
+      const cat = categoryKey ? String(row[categoryKey] || '').trim() : '';
+      const count = seenCategories.get(cat) || 0;
+      if (count < 3) {
+        sampleRows.push(row);
+        seenCategories.set(cat, count + 1);
+      }
+    }
+    // Always include the last row too (catches tail-end categories)
+    if (allSampleRows.length > 0 && !sampleRows.includes(allSampleRows[allSampleRows.length - 1])) {
+      sampleRows.push(allSampleRows[allSampleRows.length - 1]);
+    }
+
+    const uniqueCategories = [...seenCategories.keys()].filter(Boolean);
 
     // 2. Security: Fetch API key using AccessGrant
     let apiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
@@ -220,11 +239,27 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
     const hasBudget = await checkBudget(orgId, 10); // Assume 10 tokens for schema
     if (!hasBudget) throw new Error('OUT_OF_BUDGET: Not enough tokens for schema generation');
 
-    // 3. Call AI
-    const suggestedFields = await generateSchemaSuggestion(headers, sampleRows, apiKey);
-    
-    // In real scenario, AI returns tokens used, but here we assume a fix or track it if possible
-    await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed: 10, model: 'gpt-3.5-turbo', purpose: 'schema_generation' });
+    // 3. Call AI — two-stage schema generation
+    const uploadJobForContext = await db.query.uploadJobs.findFirst({
+      where: and(eq(uploadJobs.id, uploadJobId), eq(uploadJobs.orgId, orgId))
+    });
+    const catalogContext = uploadJobForContext?.catalogContext || undefined;
+
+    // Stage A: Analyse product catalog to identify categories and key attributes (gpt-4o)
+    console.log(`[Schema] Stage A: Analysing catalog categories...`);
+    const catalogAnalysis = await analyseProductCatalog(sampleRows, apiKey, catalogContext);
+    if (catalogAnalysis.totalTokensUsed > 0) {
+      await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed: catalogAnalysis.totalTokensUsed, model: 'gpt-4o', purpose: 'catalog_analysis' });
+    }
+    console.log(`[Schema] Stage A complete: ${catalogAnalysis.categories.length} categories identified`);
+
+    // Stage B: Generate enrichment fields based on analysis (gpt-4o-mini)
+    console.log(`[Schema] Stage B: Generating enrichment fields...`);
+    const { fields: suggestedFields, tokensUsed: schemaTokens } = await generateSchemaSuggestion(
+      headers, sampleRows, uniqueCategories, apiKey, catalogContext, catalogAnalysis
+    );
+
+    await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed: schemaTokens || 10, model: 'gpt-4o-mini', purpose: 'schema_generation' });
 
     // 4. Save Schema
     await withTenant(orgId, async (tx) => {
@@ -232,7 +267,7 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
         orgId,
         jobId: uploadJobId,
         status: 'draft',
-        aiModel: 'gpt-3.5-turbo',
+        aiModel: catalogAnalysis.categories.length > 0 ? 'gpt-4o + gpt-4o-mini' : 'gpt-4o-mini',
       }).returning();
 
       for (let i = 0; i < suggestedFields.length; i++) {
@@ -250,7 +285,18 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
           continue;
         }
 
-        const fieldType = raw.field_type ?? raw.fieldType ?? raw.type ?? 'text';
+        // Normalize fieldType — AI may return aliases like "string", "integer", etc.
+        let fieldType = String(raw.field_type ?? raw.fieldType ?? raw.type ?? 'text').toLowerCase();
+        const VALID_FIELD_TYPES = ['text', 'number', 'boolean', 'enum', 'url'];
+        if (!VALID_FIELD_TYPES.includes(fieldType)) {
+          if (['string', 'str', 'varchar'].includes(fieldType)) fieldType = 'text';
+          else if (['integer', 'int', 'float', 'decimal', 'double'].includes(fieldType)) fieldType = 'number';
+          else if (['bool'].includes(fieldType)) fieldType = 'boolean';
+          else if (['select', 'dropdown', 'options', 'choice'].includes(fieldType)) fieldType = 'enum';
+          else fieldType = 'text';
+          console.log(`[Schema] Normalized field type for "${fieldName}": "${raw.field_type ?? raw.fieldType ?? raw.type}" → "${fieldType}"`);
+        }
+
         const label = raw.label ?? raw.display_name ?? raw.displayName ?? fieldName;
 
         await tx.insert(schemaFields).values({
@@ -259,7 +305,8 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
           name: fieldName,
           label: String(label),
           fieldType: fieldType as any,
-          isRequired: raw.is_required ?? raw.isRequired ?? false,
+          // AI-suggested fields are never required by default — user sets this during schema review
+          isRequired: false,
           allowedValues: raw.allowed_values ?? raw.allowedValues ?? [],
           description: raw.description ?? null,
           sortOrder: i,
@@ -319,6 +366,14 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
 
     if (!run || !run.template) throw new Error('Enrichment run or template not found');
 
+    // Concurrency guard — abort if another run for this job is already active
+    const concurrentRun = await db.query.enrichmentRuns.findFirst({
+      where: and(eq(enrichmentRuns.jobId, uploadJobId), eq(enrichmentRuns.status, 'running'))
+    });
+    if (concurrentRun && concurrentRun.id !== enrichmentRunId) {
+      throw new Error(`CONCURRENT_RUN: Another enrichment run ${concurrentRun.id} is already active for job ${uploadJobId}`);
+    }
+
     const uploadJob = await db.query.uploadJobs.findFirst({
       where: and(eq(uploadJobs.id, uploadJobId), eq(uploadJobs.orgId, orgId))
     });
@@ -329,25 +384,11 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
       await tx.update(enrichmentRuns)
         .set({ status: 'running', startedAt: new Date() })
         .where(eq(enrichmentRuns.id, enrichmentRunId));
-      
+
       await tx.update(uploadJobs)
         .set({ status: 'enriching', updatedAt: new Date() })
         .where(eq(uploadJobs.id, uploadJobId));
     });
-
-    // 2. Download CSV
-    const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
-    const response = await s3Client.send(command);
-    if (!response.Body) throw new Error('Empty S3 body');
-
-    const csvContent = await (response.Body as any).transformToString();
-    console.log(`[Enrichment] CSV Content retrieved: ${csvContent.length} bytes`);
-
-    const parser = parse(csvContent, { columns: true, skip_empty_lines: true });
-    
-    let totalTokens = 0;
-    let processedCount = 0;
-    let collisionCount = 0;
 
     // 2. Security: Fetch API key using AccessGrant
     let apiKey = process.env.OPENROUTER_API_KEY || 'sk-or-v1-mock-key';
@@ -360,9 +401,8 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
         }
     }
 
-    // 2.5 Global Budget Check (at least some buffer)
+    // 2.5 Global Budget Check
     if (!await checkBudget(orgId, 100)) {
-        // SaaS Readiness: Transition to PAUSED instead of just failing
         await withTenant(orgId, async (tx) => {
           await tx.update(enrichmentRuns).set({ status: 'paused', completedAt: new Date() }).where(eq(enrichmentRuns.id, enrichmentRunId));
           await tx.update(uploadJobs).set({ status: 'paused', updatedAt: new Date() }).where(eq(uploadJobs.id, uploadJobId));
@@ -370,56 +410,92 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
         throw new Error('OUT_OF_BUDGET: Enrichment paused due to insufficient tokens');
     }
 
-    // 3. Process rows
+    // 2.6 Catalog context + few-shot examples (generated once, reused for all rows)
+    const catalogContext = uploadJob.catalogContext || undefined;
+
+    let fewShotExamples = '';
+    try {
+      // Read a small sample from S3 to generate few-shot examples
+      const sampleCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+      const sampleRes = await s3Client.send(sampleCmd);
+      const sampleParser = (sampleRes.Body as Readable).pipe(
+        parse({ columns: true, to: 8, skip_empty_lines: true, cast: false })
+      );
+      const sampleRows: any[] = [];
+      for await (const row of sampleParser) sampleRows.push(row);
+      fewShotExamples = await generateFewShotExamples(sampleRows, run.template.fields, apiKey, catalogContext);
+      if (fewShotExamples) {
+        console.log('[Enrichment] Few-shot examples generated successfully');
+      }
+    } catch (err) {
+      console.warn('[Enrichment] Failed to generate few-shot examples, proceeding without:', err);
+    }
+
+    // 3. Stream CSV row-by-row — avoids loading the full file into memory
+    const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+    const response = await s3Client.send(command);
+    if (!response.Body) throw new Error('Empty S3 body');
+
+    const parser = (response.Body as Readable).pipe(
+      parse({ columns: true, skip_empty_lines: true, cast: false })
+    );
+
+    let totalTokens = 0;
+    let processedCount = 0;
+    let failedCount = 0;
+    let collisionCount = 0;
+    let rowIndex = 0; // absolute row counter — never skipped, used as stable row ID
+
+    // 4. Process rows
     for await (const row of parser) {
-      console.log(`[Enrichment] Processing row ${processedCount + 1}: ${JSON.stringify(row).slice(0, 50)}`);
+      rowIndex++;
+      const rowLabel = row.sku || row.id || row['Имя [Ru]'] || row['name'] || `row-${rowIndex}`;
+      console.log(`[Enrichment] Row ${rowIndex}: ${String(rowLabel).slice(0, 60)}`);
+
       try {
-        const { enrichedData, confidence, tokensUsed } = await enrichItem(
+        const { enrichedData: rawEnriched, confidence, tokensUsed } = await enrichItem(
           row,
           run.template.fields,
-          apiKey
+          apiKey,
+          catalogContext,
+          fewShotExamples
         );
 
         totalTokens += tokensUsed;
         processedCount++;
 
-        // Budget Consumption
-        await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed, model: 'gpt-3.5-turbo', purpose: 'enrichment' });
-        
-        // Metrics
+        await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed, model: 'gpt-4o-mini', purpose: 'enrichment' });
         itemsEnrichedCounter.inc();
         tokensConsumedCounter.inc(tokensUsed);
 
+        // Post-process: coerce types + validate enum values
+        const { data: enrichedData, enumViolations } = postProcessEnrichedData(rawEnriched, run.template.fields);
+
         // Detect collisions
         const rowCollisions: { field: string; reason: string; value: string | null }[] = [];
-        
-        // Check confidence
-        if (confidence < 80) {
-          rowCollisions.push({
-            field: '_overall_',
-            reason: 'low_confidence',
-            value: `Confidence: ${confidence}%`,
-          });
-        }
 
-        // Check required fields
+        // Required fields with missing values
         for (const field of run.template.fields) {
           if (field.isRequired && (enrichedData[field.name] === null || enrichedData[field.name] === undefined || enrichedData[field.name] === '')) {
-            rowCollisions.push({
-              field: field.name,
-              reason: 'missing_required',
-              value: null,
-            });
+            rowCollisions.push({ field: field.name, reason: 'missing_required', value: null });
           }
         }
 
-        // Save Enriched Item
+        // Enum violations — AI returned a value outside allowedValues
+        for (const v of enumViolations) {
+          rowCollisions.push({
+            field: v.field,
+            reason: 'invalid_enum_value',
+            value: `"${v.value}" not in [${v.allowedValues.join(', ')}]`,
+          });
+        }
+
         await withTenant(orgId, async (tx) => {
           const [item] = await tx.insert(enrichedItems).values({
             orgId,
             uploadId: uploadJobId,
             runId: enrichmentRunId,
-            skuExternalId: row.sku || row.id || `row-${processedCount}`,
+            skuExternalId: `row-${rowIndex}`,
             rawData: JSON.stringify(row),
             enrichedData: JSON.stringify(enrichedData),
             confidence,
@@ -441,15 +517,34 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
             }
           }
 
-          // Update Run Stats every 10 items
-          if (processedCount % 10 === 0) {
+          if (rowIndex % 10 === 0) {
             await tx.update(enrichmentRuns)
               .set({ processedItems: processedCount, tokensUsed: totalTokens })
               .where(eq(enrichmentRuns.id, enrichmentRunId));
           }
         });
-      } catch (rowError) {
-        console.error(`[Enrichment] Row failed in run ${enrichmentRunId}:`, rowError);
+
+      } catch (rowError: any) {
+        // Save failed row with original data preserved — guarantees every CSV row
+        // appears in the export even if AI enrichment failed for it.
+        failedCount++;
+        console.error(`[Enrichment] Row ${rowIndex} failed:`, rowError?.message || rowError);
+        try {
+          await withTenant(orgId, async (tx) => {
+            await tx.insert(enrichedItems).values({
+              orgId,
+              uploadId: uploadJobId,
+              runId: enrichmentRunId,
+              skuExternalId: `row-${rowIndex}`,
+              rawData: JSON.stringify(row),
+              enrichedData: JSON.stringify({}),
+              confidence: 0,
+              status: 'collision',
+            });
+          });
+        } catch (saveErr) {
+          console.error(`[Enrichment] Could not save failed row ${rowIndex}:`, saveErr);
+        }
       }
     }
 
@@ -506,7 +601,7 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
       }
     });
 
-    console.log(`[Enrichment] Run ${enrichmentRunId} completed with ${collisionCount} collisions.`);
+    console.log(`[Enrichment] Run ${enrichmentRunId} done. Processed: ${processedCount}, Failed: ${failedCount}, Collisions: ${collisionCount}.`);
   } catch (error: any) {
     console.error(`[Enrichment] Run ${enrichmentRunId} failed:`, error);
     await withTenant(orgId, async (tx) => {
@@ -582,7 +677,7 @@ export async function processSeoJob(job: Job<SeoJobData>) {
         processedCount++;
 
         // Budget Consumption
-        await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed, model: 'gpt-3.5-turbo', purpose: 'seo' });
+        await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed, model: 'gpt-4o-mini', purpose: 'seo' });
         
         // Metrics
         tokensConsumedCounter.inc(tokensUsed);
@@ -670,51 +765,88 @@ export async function processExportJob(job: Job<ExportJobData>) {
     // 1. Get confirmed schema and fields
     const schema = await db.query.schemaTemplates.findFirst({
       where: and(eq(schemaTemplates.jobId, uploadId), eq(schemaTemplates.status, 'confirmed')),
-      with: { fields: true }
+      with: { fields: { orderBy: (f: any, { asc }: any) => [asc(f.sortOrder)] } }
     });
-
     if (!schema) throw new Error('Confirmed schema not found');
 
-    // 2. Fetch all enriched items
-    const items = await db.query.enrichedItems.findMany({
-      where: eq(enrichedItems.uploadId, uploadId),
-      orderBy: (items, { asc }) => [asc(items.createdAt)]
+    // 2. Fetch upload job to get original s3Key for column-order preservation
+    const uploadJobRecord = await db.query.uploadJobs.findFirst({
+      where: and(eq(uploadJobs.id, uploadId), eq(uploadJobs.orgId, orgId))
     });
+    if (!uploadJobRecord) throw new Error('Upload job not found');
 
-    // 3. Build headers: original CSV columns + schema enriched field names (deduplicated)
-    // This ensures original data is always present even when AI enrichment is partial.
-    const rawColumnsSet = new Set<string>();
-    items.forEach(item => {
-      const raw = JSON.parse(item.rawData || '{}');
-      Object.keys(raw).forEach(k => rawColumnsSet.add(k));
-    });
-    const schemaFieldNames = schema.fields.map(f => f.name);
-    // Original columns first, then schema-only enriched fields not already present
-    const allColumns = [
-      ...Array.from(rawColumnsSet),
-      ...schemaFieldNames.filter(n => !rawColumnsSet.has(n))
-    ];
-    const headers = [...allColumns];
-    if (includeSeo) {
-      headers.push('seo_title', 'seo_description', 'seo_keywords');
+    // 3. Read original CSV headers (preserving exact user-defined order)
+    // Use `to: 1` (record limit, not line limit) so the header line is consumed
+    // correctly and we receive exactly 1 data record to extract column names from.
+    const originalS3Resp = await s3Client.send(
+      new GetObjectCommand({ Bucket: BUCKET_NAME, Key: uploadJobRecord.s3Key })
+    );
+    if (!originalS3Resp.Body) throw new Error('Original S3 file not found');
+
+    let originalHeaders: string[] = [];
+    const headerParser = (originalS3Resp.Body as Readable).pipe(
+      parse({ columns: true, to: 1 })
+    );
+    for await (const firstRow of headerParser) {
+      originalHeaders = Object.keys(firstRow);
+      break;
     }
 
-    const csvRows = items.map(item => {
-      const raw = JSON.parse(item.rawData || '{}');
-      const enriched = JSON.parse(item.enrichedData || '{}');
-      // Merge: raw data first as fallback, enriched values override raw
-      const merged = { ...raw, ...enriched };
-      const row: any = {};
-      allColumns.forEach(col => {
-        row[col] = merged[col] ?? '';
-      });
-      if (includeSeo) {
-        row['seo_title'] = enriched['seo_title'] || '';
-        row['seo_description'] = enriched['seo_description'] || '';
-        row['seo_keywords'] = enriched['seo_keywords'] || '';
-      }
-      return row;
+    // 4. Fetch all enriched items keyed by stable row ID
+    const itemRows = await db.query.enrichedItems.findMany({
+      where: eq(enrichedItems.uploadId, uploadId),
+      orderBy: (t, { asc }) => [asc(t.createdAt)]
     });
+    const itemByRowId = new Map(itemRows.map(i => [i.skuExternalId, i]));
+
+    // 5. Stream original CSV again to get all rows in original order
+    const csvS3Resp = await s3Client.send(
+      new GetObjectCommand({ Bucket: BUCKET_NAME, Key: uploadJobRecord.s3Key })
+    );
+    if (!csvS3Resp.Body) throw new Error('CSV S3 body missing on second read');
+
+    const schemaFieldNames = schema.fields.map((f: any) => f.name);
+    const enrichedOnlyColumns = schemaFieldNames.filter((n: string) => !originalHeaders.includes(n));
+    const allColumns = [...originalHeaders, ...enrichedOnlyColumns];
+    const headers = [...allColumns, '_enrichment_status'];
+    if (includeSeo) headers.push('seo_title', 'seo_description', 'seo_keywords');
+
+    const csvRows: any[] = [];
+    let rowIdx = 0;
+    const originalParser = (csvS3Resp.Body as Readable).pipe(
+      parse({ columns: true, skip_empty_lines: true, cast: false })
+    );
+
+    for await (const rawRow of originalParser) {
+      rowIdx++;
+      const rowId = `row-${rowIdx}`;
+      const item = itemByRowId.get(rowId);
+      const enriched = item ? JSON.parse(item.enrichedData || '{}') : {};
+      const merged = { ...rawRow, ...enriched };
+
+      const outRow: any = {};
+      allColumns.forEach((col: string) => {
+        outRow[col] = merged[col] ?? '';
+      });
+
+      // Enrichment status marker — helps users identify gaps
+      if (!item) {
+        outRow['_enrichment_status'] = 'not_enriched';
+      } else if (item.confidence === 0 && Object.keys(enriched).length === 0) {
+        outRow['_enrichment_status'] = 'failed';
+      } else if (item.status === 'collision') {
+        outRow['_enrichment_status'] = 'needs_review';
+      } else {
+        outRow['_enrichment_status'] = 'ok';
+      }
+
+      if (includeSeo) {
+        outRow['seo_title'] = enriched['seo_title'] || '';
+        outRow['seo_description'] = enriched['seo_description'] || '';
+        outRow['seo_keywords'] = enriched['seo_keywords'] || '';
+      }
+      csvRows.push(outRow);
+    }
 
     const csvContent = stringify(csvRows, { header: true, columns: headers });
 

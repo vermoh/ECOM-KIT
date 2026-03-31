@@ -1,48 +1,56 @@
 import { SchemaField } from '@ecom-kit/shared-types';
 
-export async function generateSchemaSuggestion(
-  headers: string[],
-  sampleData: any[],
-  apiKey: string
-): Promise<Partial<any>[]> {
-  const existingColumns = headers.join(', ');
-  const sample = JSON.stringify(sampleData.slice(0, 3), null, 2);
+export interface CatalogAnalysis {
+  categories: { name: string; attributes: string[]; exampleProducts: string[] }[];
+  totalTokensUsed: number;
+}
 
-  const prompt = `You are an E-commerce product data enrichment expert. Your task is to propose a list of ADDITIONAL product fields that can be enriched using AI based on the product data provided.
+/**
+ * Stage A: Analyse a product catalog to identify distinct categories/niches
+ * and their key commercial + technical attributes.
+ * Uses gpt-4o for higher quality (single call per upload).
+ */
+export async function analyseProductCatalog(
+  sampleRows: any[],
+  apiKey: string,
+  catalogContext?: string
+): Promise<CatalogAnalysis> {
+  if (apiKey.includes('mock') || sampleRows.length === 0) {
+    return { categories: [], totalTokensUsed: 0 };
+  }
 
-EXISTING CSV COLUMNS (already present — do NOT include these in your output):
-${existingColumns}
+  const rowsBlock = sampleRows.map((row, i) => {
+    const lines = Object.entries(row)
+      .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+      .map(([k, v]) => `  ${k}: ${v}`)
+      .join('\n');
+    return `--- Product ${i + 1} ---\n${lines}`;
+  }).join('\n\n');
 
-SAMPLE PRODUCT DATA:
-${sample}
+  const contextLine = catalogContext
+    ? `\nMERCHANT-PROVIDED DOMAIN CONTEXT:\n${catalogContext}\n`
+    : '';
+
+  const prompt = `You are a senior product catalog analyst. Study the sample products below and identify ALL distinct product categories or niches present in this catalog.
+${contextLine}
+SAMPLE PRODUCTS:
+${rowsBlock}
 
 YOUR TASK:
-Based on the product category/type visible in the data, suggest 6-12 NEW enrichment fields that:
-1. Are NOT already present in the CSV columns listed above
-2. Can be inferred or generated from the existing data using AI
-3. Would add real value for an e-commerce catalog (searchability, filtering, SEO, logistics)
+1. Identify every distinct product category/niche represented in the data above
+2. For each category, list the key commercial and technical attributes that are specific to that niche (e.g. "puff_count" for disposable vapes, "volume_ml" for liquids, "screen_size" for electronics)
+3. Name 1-2 example products from the data that belong to each category
 
-Examples of fields you might suggest (match to the actual product type!):
-- For electronics: brand, processor_type, ram_gb, screen_size_inch, battery_life_hours, connectivity, operating_system, warranty_months, weight_kg, color_options
-- For furniture: material, color, dimensions_cm, max_load_kg, assembly_required, style, room_type
-- For appliances: brand, power_watts, energy_rating, capacity_liters, noise_level_db, color, warranty_years
-- For food/beverages: ingredients, allergens, net_weight_g, calories_per_100g, is_vegan, storage_temp, shelf_life_days
-- For clothing: material, sizes_available, care_instructions, gender, season, country_of_origin
-
-Respond ONLY with valid JSON in this exact structure:
+Respond ONLY with valid JSON:
 {
-  "fields": [
+  "categories": [
     {
-      "name": "snake_case_key",
-      "label": "Human Readable Label",
-      "field_type": "text|number|boolean|enum|url",
-      "is_required": false,
-      "description": "What this field represents and how it will be enriched",
-      "allowed_values": ["val1", "val2"]
+      "name": "Human-readable category name",
+      "attributes": ["attr1", "attr2", "attr3"],
+      "example_products": ["Product Name 1", "Product Name 2"]
     }
   ]
-}
-Note: "allowed_values" is only needed when field_type is "enum". Omit it for other types.`;
+}`;
 
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -52,9 +60,10 @@ Note: "allowed_values" is only needed when field_type is "enum". Omit it for oth
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-3.5-turbo',
+        model: 'openai/gpt-4o',
+        temperature: 0.2,
         messages: [
-          { role: 'system', content: 'You are a product data enrichment expert. Always respond with valid JSON only, no markdown fences or explanation.' },
+          { role: 'system', content: 'You are a product catalog analysis expert. Respond with valid JSON only, no markdown.' },
           { role: 'user', content: prompt }
         ],
         response_format: { type: 'json_object' }
@@ -62,51 +71,173 @@ Note: "allowed_values" is only needed when field_type is "enum". Omit it for oth
     });
 
     const data = await response.json() as any;
-
     if (!data.choices || data.choices.length === 0) {
-      console.warn('[AI] generateSchemaSuggestion: no choices from OpenRouter:', JSON.stringify(data).slice(0, 300));
-      if (apiKey.includes('mock')) {
-        return _mockSchemaFallback(headers);
-      }
-      throw new Error(`AI_API_ERROR: ${data.error?.message || 'Unknown error'}`);
+      console.warn('[AI] analyseProductCatalog: no choices returned:', JSON.stringify(data).slice(0, 300));
+      return { categories: [], totalTokensUsed: 0 };
     }
 
     const content = data.choices[0].message.content;
-    console.log('[AI] Schema raw response:', content?.slice(0, 400));
+    console.log('[AI] Catalog analysis raw:', content?.slice(0, 500));
 
     let parsed: any;
     try {
       parsed = JSON.parse(content);
     } catch {
-      console.warn('[AI] generateSchemaSuggestion: failed to parse JSON, raw:', content?.slice(0, 200));
-      return _mockSchemaFallback(headers);
+      console.warn('[AI] analyseProductCatalog: failed to parse JSON, skipping analysis');
+      return { categories: [], totalTokensUsed: data.usage?.total_tokens || 0 };
     }
 
-    // Normalize: expect { fields: [...] } but handle bare array too
-    const fields = parsed.fields ?? parsed.suggested_fields ?? parsed.schema ?? (Array.isArray(parsed) ? parsed : null);
-    if (!Array.isArray(fields) || fields.length === 0) {
-      console.warn('[AI] generateSchemaSuggestion: fields array missing or empty, parsed keys:', Object.keys(parsed));
-      return _mockSchemaFallback(headers);
-    }
+    const cats = Array.isArray(parsed.categories) ? parsed.categories : [];
+    const categories = cats.map((c: any) => ({
+      name: String(c.name || ''),
+      attributes: Array.isArray(c.attributes) ? c.attributes.map(String) : [],
+      exampleProducts: Array.isArray(c.example_products) ? c.example_products.map(String) : [],
+    })).filter((c: any) => c.name);
 
-    // Filter out any fields that duplicate existing CSV columns
-    const existingLower = new Set(headers.map(h => h.toLowerCase().replace(/[^a-z0-9_]/g, '_')));
-    const newFields = fields.filter((f: any) => {
-      const n = (f.name || '').toLowerCase();
-      return n && !existingLower.has(n);
-    });
-
-    if (newFields.length === 0) {
-      console.warn('[AI] generateSchemaSuggestion: AI returned only existing columns, using mock fallback');
-      return _mockSchemaFallback(headers);
-    }
-
-    console.log(`[AI] generateSchemaSuggestion: got ${newFields.length} new enrichment fields`);
-    return newFields;
-  } catch (error) {
-    console.error('[AI] Error in generateSchemaSuggestion:', error);
-    return _mockSchemaFallback(headers);
+    console.log(`[AI] analyseProductCatalog: found ${categories.length} categories`);
+    return { categories, totalTokensUsed: data.usage?.total_tokens || 0 };
+  } catch (err) {
+    console.warn('[AI] analyseProductCatalog failed, schema generation will proceed without analysis:', err);
+    return { categories: [], totalTokensUsed: 0 };
   }
+}
+
+export async function generateSchemaSuggestion(
+  headers: string[],
+  sampleData: any[],
+  uniqueCategories: string[],
+  apiKey: string,
+  catalogContext?: string,
+  catalogAnalysis?: CatalogAnalysis
+): Promise<{ fields: Partial<any>[]; tokensUsed: number }> {
+  // Explicit dev/test mode — only use mock when key is intentionally fake
+  if (apiKey.includes('mock')) {
+    console.log('[AI] Mock API key detected, returning fallback schema for dev/test');
+    return { fields: _mockSchemaFallback(headers), tokensUsed: 0 };
+  }
+
+  const existingColumns = headers.join(', ');
+
+  // Render sample rows as readable key:value blocks so the model treats every
+  // field — especially long description fields — as meaningful signal.
+  const sampleBlock = sampleData.map((row, i) => {
+    const lines = Object.entries(row)
+      .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+      .map(([k, v]) => `  ${k}: ${v}`)
+      .join('\n');
+    return `--- Product ${i + 1} ---\n${lines}`;
+  }).join('\n\n');
+
+  const categoriesBlock = uniqueCategories.length > 0
+    ? `\nPRODUCT CATEGORIES FOUND IN THIS CATALOG:\n${uniqueCategories.map(c => `- ${c}`).join('\n')}`
+    : '';
+
+  const contextBlock = catalogContext
+    ? `\nCATALOG DOMAIN CONTEXT (provided by the merchant):\n${catalogContext}\n`
+    : '';
+
+  // Stage A analysis results — when available, gives the model a pre-analysed
+  // breakdown of categories and their key attributes, leading to better field proposals.
+  let analysisBlock = '';
+  if (catalogAnalysis && catalogAnalysis.categories.length > 0) {
+    const catLines = catalogAnalysis.categories.map(c =>
+      `• ${c.name}\n  Key attributes: ${c.attributes.join(', ')}\n  Examples: ${c.exampleProducts.join(', ')}`
+    ).join('\n');
+    analysisBlock = `\nPRE-ANALYSED CATALOG STRUCTURE (from Stage A analysis — use this to ensure coverage of ALL niches):\n${catLines}\n`;
+  }
+
+  const prompt = `You are a senior E-commerce catalog specialist. Propose enrichment fields based on a thorough catalog analysis.
+${contextBlock}${analysisBlock}
+EXISTING CSV COLUMNS (already present — do NOT suggest these):
+${existingColumns}
+${categoriesBlock}
+
+SAMPLE PRODUCT DATA (${sampleData.length} diverse rows — read descriptions carefully, they contain the richest product context):
+${sampleBlock}
+
+YOUR TASK:
+Based on the catalog analysis and sample data above, propose enrichment fields that cover ALL identified product categories.
+
+REQUIREMENTS:
+1. Propose 12-25 fields total:
+   - UNIVERSAL fields applicable to all products (brand, product_type, etc.)
+   - CATEGORY-SPECIFIC fields for each niche identified in the analysis — include the field's "description" to note which categories it applies to
+2. Every field must be reliably extractable or inferable from product names and descriptions using AI
+3. Every field must add real e-commerce value: filtering, search, logistics, compliance, or recommendations
+4. If two categories share a similar concept (e.g. "volume" for liquids and "capacity" for tanks), DEDUPLICATE into a single field with a clear description covering both uses
+5. Suggest fields specific to what you see in the data — do NOT use generic fallbacks
+
+THINK IN THESE DIMENSIONS:
+- Physical: brand, color, material, dimensions, weight
+- Technical: category-specific specs drawn from the analysis above
+- Commercial: age_restriction, product_type, target use, certifications
+- Catalog: product_line, compatibility, pack_quantity, country_of_origin
+
+Respond ONLY with valid JSON:
+{
+  "fields": [
+    {
+      "name": "snake_case_key",
+      "label": "Human Readable Label",
+      "field_type": "text|number|boolean|enum",
+      "description": "What this field captures, how to infer it, and which categories it applies to",
+      "allowed_values": ["val1", "val2"]
+    }
+  ]
+}
+"allowed_values" only for enum fields. Omit for other types.`;
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'openai/gpt-4o-mini',
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: 'You are a product data enrichment expert. Respond with valid JSON only, no markdown.' },
+        { role: 'user', content: prompt }
+      ],
+      response_format: { type: 'json_object' }
+    })
+  });
+
+  const data = await response.json() as any;
+
+  if (!data.choices || data.choices.length === 0) {
+    const errMsg = data.error?.message || JSON.stringify(data).slice(0, 300);
+    throw new Error(`AI_API_ERROR: ${errMsg}`);
+  }
+
+  const content = data.choices[0].message.content;
+  console.log('[AI] Schema raw response:', content?.slice(0, 600));
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error(`AI_PARSE_ERROR: Schema response is not valid JSON. Raw: ${content?.slice(0, 200)}`);
+  }
+
+  const fields = parsed.fields ?? parsed.suggested_fields ?? parsed.schema ?? (Array.isArray(parsed) ? parsed : null);
+  if (!Array.isArray(fields) || fields.length === 0) {
+    throw new Error(`AI_FORMAT_ERROR: Fields array missing or empty. Response keys: ${Object.keys(parsed).join(', ')}`);
+  }
+
+  const existingLower = new Set(headers.map(h => h.toLowerCase().replace(/[^a-z0-9_]/g, '_')));
+  const newFields = fields.filter((f: any) => {
+    const n = (f.name || '').toLowerCase();
+    return n && !existingLower.has(n);
+  });
+
+  if (newFields.length === 0) {
+    throw new Error('AI_FORMAT_ERROR: All suggested fields duplicate existing CSV columns — adjust the prompt or check CSV headers');
+  }
+
+  console.log(`[AI] generateSchemaSuggestion: got ${newFields.length} enrichment fields across ${uniqueCategories.length} categories`);
+  return { fields: newFields, tokensUsed: data.usage?.total_tokens || 0 };
 }
 
 /** Fallback: propose sensible generic enrichment fields when AI is unavailable */
@@ -125,35 +256,169 @@ function _mockSchemaFallback(headers: string[]): Partial<any>[] {
   return candidates.filter(c => !existingLower.has(c.name));
 }
 
+/**
+ * Generate 2-3 few-shot enrichment examples from actual catalog rows and confirmed schema.
+ * Called once at the start of an enrichment run; result is reused for all rows.
+ */
+export async function generateFewShotExamples(
+  sampleRows: any[],
+  schemaFields: any[],
+  apiKey: string,
+  catalogContext?: string
+): Promise<string> {
+  if (apiKey.includes('mock') || sampleRows.length === 0 || schemaFields.length === 0) {
+    return '';
+  }
+
+  const fieldList = schemaFields.map(f => {
+    let s = `  "${f.name}" (${f.fieldType || 'text'})`;
+    if (Array.isArray(f.allowedValues) && f.allowedValues.length) {
+      s += ` — one of: ${f.allowedValues.join(', ')}`;
+    }
+    return s;
+  }).join('\n');
+
+  const rows = sampleRows.slice(0, 5).map((row, i) => {
+    const lines = Object.entries(row)
+      .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+      .map(([k, v]) => `    ${k}: ${v}`)
+      .join('\n');
+    return `  --- Product ${i + 1} ---\n${lines}`;
+  }).join('\n\n');
+
+  const contextLine = catalogContext ? `\nCatalog domain: ${catalogContext}\n` : '';
+
+  const prompt = `You are preparing few-shot examples for an AI enrichment prompt.${contextLine}
+
+SCHEMA FIELDS TO FILL:
+${fieldList}
+
+SAMPLE PRODUCTS FROM THIS CATALOG:
+${rows}
+
+TASK: Create 2 complete enrichment examples using 2 of the products above. Each example shows:
+- INPUT: the raw product data (key: value pairs, compact format)
+- OUTPUT: all schema fields filled with correct values
+
+Format exactly like this:
+--- Example 1 ---
+INPUT:
+  <key>: <value>
+  ...
+OUTPUT:
+  <field_name> → <value>
+  ...
+
+--- Example 2 ---
+INPUT:
+  <key>: <value>
+  ...
+OUTPUT:
+  <field_name> → <value>
+  ...
+
+Rules:
+- Use real data from the products above
+- Fill ALL schema fields in each output
+- Be precise: numbers as numbers, booleans as true/false, enums from allowed list only
+- Do NOT add any explanation outside the example blocks`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: 'You are creating training examples for an AI prompt. Follow the format exactly.' },
+          { role: 'user', content: prompt }
+        ]
+      })
+    });
+
+    const data = await response.json() as any;
+    if (!data.choices || data.choices.length === 0) {
+      console.warn('[AI] generateFewShotExamples: no choices returned, skipping few-shot');
+      return '';
+    }
+
+    const content = (data.choices[0].message.content || '').trim();
+    console.log(`[AI] generateFewShotExamples: generated ${content.split('--- Example').length - 1} examples`);
+    return content;
+  } catch (err) {
+    console.warn('[AI] generateFewShotExamples failed, enrichment will proceed without few-shot:', err);
+    return '';
+  }
+}
+
 export async function enrichItem(
   row: any,
   schemaFields: any[],
-  apiKey: string
+  apiKey: string,
+  catalogContext?: string,
+  fewShotExamples?: string
 ): Promise<{ enrichedData: any; confidence: number; tokensUsed: number }> {
   const fieldNames = schemaFields.map(f => f.name);
-  const schemaDescription = schemaFields.map(f =>
-    `- "${f.name}" (${f.fieldType || 'text'}): ${f.description || ''}${Array.isArray(f.allowedValues) && f.allowedValues.length ? ' Allowed values: ' + f.allowedValues.join(', ') : ''}`
-  ).join('\n');
+  const schemaDescription = schemaFields.map(f => {
+    let desc = `- "${f.name}" (${f.fieldType || 'text'}): ${f.description || f.label || f.name}`;
+    if (Array.isArray(f.allowedValues) && f.allowedValues.length) {
+      desc += `. MUST be one of: ${f.allowedValues.join(', ')}`;
+    }
+    return desc;
+  }).join('\n');
 
-  const emptyExample = Object.fromEntries(fieldNames.map(n => [n, null]));
+  // Build a human-readable breakdown of the row so the AI treats every field
+  // as meaningful signal, regardless of how the CSV column was originally named.
+  const rowContext = Object.entries(row)
+    .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+    .map(([k, v]) => `  ${k}: ${v}`)
+    .join('\n');
 
-  const prompt = `You are an E-commerce product data expert. Extract and infer values for a structured schema from raw SKU data.
+  const contextBlock = catalogContext
+    ? `\nCATALOG DOMAIN: ${catalogContext}\n`
+    : '';
 
-RAW SKU DATA:
-${JSON.stringify(row)}
+  const fewShotBlock = fewShotExamples
+    ? `\nFEW-SHOT EXAMPLES (use these as reference for inference style, value format, and field coverage):\n${fewShotExamples}\n`
+    : '';
 
-TARGET SCHEMA FIELDS:
+  const prompt = `You are an E-commerce product data enrichment engine. Your job is to fill in product attributes by extracting or intelligently inferring values from the raw product data.
+${contextBlock}
+The product data may be in any language (including Russian). Read and understand EVERY field — product name, description, and category all contain important clues.
+${fewShotBlock}
+RAW PRODUCT DATA:
+${rowContext}
+
+FIELDS TO FILL (fill ALL of them):
 ${schemaDescription}
 
-INSTRUCTIONS:
-- Extract values for the schema fields directly from the raw data.
-- If a value cannot be found exactly in the raw data, INFER a highly plausible value based on the product category or name. Do not use null unless absolutely necessary.
-- Do not add extra fields not listed in the schema.
+STEP 1 — ANALYSIS (write a brief chain-of-thought inside the "reasoning" field):
+- Identify the product type and niche
+- Identify the brand (if visible in name, description, or category)
+- Note key characteristics visible in name and description (specs, flavors, dimensions, etc.)
 
-You MUST return ONLY this JSON structure (no markdown, no explanation):
+STEP 2 — FILL all fields based on your analysis.
+
+RULES:
+1. Read ALL input fields above carefully — the description field often contains the richest context.
+2. Extract the value directly when explicitly stated. Infer plausible values when not stated.
+3. For boolean fields: return true or false (not "yes"/"no").
+4. For number fields: return a number only (integer or float), no units in the value.
+5. For enum fields: return exactly one of the allowed values listed.
+6. For text fields: return a concise string. Match the language of the input data.
+7. NEVER return null or omit a field. If genuinely unknown, return the most plausible default for this product type and niche.
+
+Return ONLY this JSON (no markdown):
 {
-  "enriched_data": ${JSON.stringify(emptyExample)},
-  "confidence": <integer 0-100>
+  "reasoning": "<1-3 sentence analysis of product type, brand, and key specs>",
+  "enriched_data": {
+${fieldNames.map(n => `    "${n}": <value>`).join(',\n')}
+  },
+  "confidence": <integer 60-100>
 }`;
 
   try {
@@ -164,9 +429,10 @@ You MUST return ONLY this JSON structure (no markdown, no explanation):
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-3.5-turbo',
+        model: 'openai/gpt-4o-mini',
+        temperature: 0.2,
         messages: [
-          { role: 'system', content: 'You are a data enrichment engine. Always respond with valid JSON only, no markdown.' },
+          { role: 'system', content: 'You are a data enrichment engine with deep knowledge of e-commerce product catalogs. Always respond with valid JSON only, no markdown.' },
           { role: 'user', content: prompt }
         ],
         response_format: { type: 'json_object' }
@@ -224,13 +490,64 @@ You MUST return ONLY this JSON structure (no markdown, no explanation):
 
     return {
       enrichedData,
-      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
+      // Default to 70 (inferred) when AI omits confidence — avoid false collision flood
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 70,
       tokensUsed: data.usage?.total_tokens || 0
     };
   } catch (error) {
     console.error('Error in enrichItem:', error);
     throw error;
   }
+}
+
+/**
+ * Coerce AI output to match declared field types and validate enum values.
+ * Returns corrected data and a list of enum violations (value not in allowedValues).
+ */
+export function postProcessEnrichedData(
+  enrichedData: any,
+  schemaFields: any[]
+): { data: any; enumViolations: { field: string; value: any; allowedValues: string[] }[] } {
+  const data: any = { ...enrichedData };
+  const enumViolations: { field: string; value: any; allowedValues: string[] }[] = [];
+
+  for (const field of schemaFields) {
+    const raw = data[field.name];
+    if (raw === null || raw === undefined) continue;
+
+    const type = field.fieldType || 'text';
+
+    if (type === 'number') {
+      const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[^\d.-]/g, ''));
+      data[field.name] = isNaN(num) ? null : num;
+
+    } else if (type === 'boolean') {
+      if (typeof raw !== 'boolean') {
+        const s = String(raw).toLowerCase().trim();
+        data[field.name] = s === 'true' || s === '1' || s === 'yes' || s === 'да';
+      }
+
+    } else if (type === 'text' || type === 'url') {
+      data[field.name] = String(raw).trim();
+
+    } else if (type === 'enum') {
+      const allowed: string[] = Array.isArray(field.allowedValues) ? field.allowedValues : [];
+      if (allowed.length > 0) {
+        const actual = String(raw).trim();
+        const normalised = actual.toLowerCase();
+        // Exact case-insensitive match → normalise to canonical casing
+        const canonical = allowed.find(v => v.toLowerCase() === normalised);
+        if (canonical) {
+          data[field.name] = canonical;
+        } else {
+          // Value not in allowed set — flag as violation
+          enumViolations.push({ field: field.name, value: actual, allowedValues: allowed });
+        }
+      }
+    }
+  }
+
+  return { data, enumViolations };
 }
 
 export async function generateSeoAttributes(
@@ -262,7 +579,8 @@ export async function generateSeoAttributes(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-3.5-turbo',
+        model: 'openai/gpt-4o-mini',
+        temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
       })

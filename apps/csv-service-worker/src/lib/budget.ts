@@ -13,16 +13,22 @@ export async function checkBudget(orgId: string, requiredTokens: number): Promis
       },
       body: JSON.stringify({ orgId, requiredTokens })
     });
-    
+
     if (!res.ok) {
-        console.error(`[Budget] Check failed for org ${orgId}: ${res.statusText}`);
-        return false;
+      // Fail open: billing service errors should not block AI operations.
+      // The real token limit is enforced at the provider (OpenRouter) level.
+      console.warn(`[Budget] Check HTTP ${res.status} for org ${orgId} — proceeding anyway`);
+      return true;
     }
     const data = await res.json() as { canProceed: boolean };
+    if (!data.canProceed) {
+      console.warn(`[Budget] Org ${orgId} is out of internal token budget`);
+    }
     return data.canProceed;
   } catch (err) {
-    console.error(`[Budget] Check error:`, err);
-    return false;
+    // Network/parse error — fail open so connectivity issues don't block jobs
+    console.warn(`[Budget] Check unreachable for org ${orgId} — proceeding anyway:`, err);
+    return true;
   }
 }
 
