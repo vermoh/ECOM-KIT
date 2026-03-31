@@ -10,7 +10,9 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
   
   // Security: Handle CORS (should be strict in prod)
-  app.enableCors();
+  app.enableCors({
+    origin: process.env.WEB_ORIGIN || true,
+  });
   
   // Validation: Global pipe for DTOs
   app.useGlobalPipes(new ValidationPipe({

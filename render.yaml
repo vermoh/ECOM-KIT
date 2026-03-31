@@ -1,0 +1,121 @@
+databases:
+  - name: ecom-kit-db
+    plan: starter
+    databaseName: ecom_platform
+    user: ecom_user
+    postgresMajorVersion: "16"
+
+services:
+  # --- Control Plane API (NestJS) ---
+  - type: web
+    name: control-plane-api
+    runtime: node
+    plan: starter
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: node apps/control-plane-api/dist/main.js
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ecom-kit-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WEB_ORIGIN
+        value: https://control-plane-web.onrender.com
+      - fromGroup: s3-credentials
+
+  # --- Control Plane Web (Next.js) ---
+  - type: web
+    name: control-plane-web
+    runtime: node
+    plan: starter
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: cp -r apps/control-plane-web/public apps/control-plane-web/.next/standalone/apps/control-plane-web/public && cp -r apps/control-plane-web/.next/static apps/control-plane-web/.next/standalone/apps/control-plane-web/.next/static && node apps/control-plane-web/.next/standalone/apps/control-plane-web/server.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        value: https://control-plane-api.onrender.com
+      - key: NEXT_PUBLIC_CSV_API_URL
+        value: https://csv-service-api.onrender.com
+
+  # --- CSV Service API (Fastify) ---
+  - type: web
+    name: csv-service-api
+    runtime: node
+    plan: starter
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: node apps/csv-service-api/dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ecom-kit-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: ecom-kit-redis
+          type: redis
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: CONTROL_PLANE_URL
+        value: https://control-plane-api.onrender.com
+      - key: WEB_ORIGIN
+        value: https://control-plane-web.onrender.com
+      - key: S3_FORCE_PATH_STYLE
+        value: "false"
+      - fromGroup: s3-credentials
+
+  # --- CSV Service Worker (BullMQ background) ---
+  - type: worker
+    name: csv-service-worker
+    runtime: node
+    plan: starter
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: node apps/csv-service-worker/dist/worker.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ecom-kit-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: ecom-kit-redis
+          type: redis
+          property: connectionString
+      - key: S3_FORCE_PATH_STYLE
+        value: "false"
+      - fromGroup: s3-credentials
+
+  # --- Redis ---
+  - type: redis
+    name: ecom-kit-redis
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+
+envVarGroups:
+  - name: s3-credentials
+    envVars:
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: S3_REGION
+        value: us-east-1
+
+preDeployCommand: cd packages/shared-db && node dist/migrate.js

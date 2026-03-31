@@ -102,13 +102,19 @@ export async function schemaRoutes(fastify: FastifyInstance) {
             isRequired: field.isRequired ?? false,
             allowedValues: Array.isArray(field.allowedValues) ? field.allowedValues.filter(Boolean) : [],
             description: field.description || null,
+            extractionHint: field.extractionHint || null,
             sortOrder: i,
           });
         }
 
-        // 3. Update version
+        // 3. Update version + golden samples if provided
+        const updateData: any = { version: template.version + 1 };
+        const body = request.body as any;
+        if (body.goldenSamples !== undefined) {
+          updateData.goldenSamples = body.goldenSamples ? JSON.stringify(body.goldenSamples) : null;
+        }
         await tx.update(schemaTemplates)
-          .set({ version: template.version + 1 })
+          .set(updateData)
           .where(eq(schemaTemplates.id, template.id));
 
         // 4. Audit Log

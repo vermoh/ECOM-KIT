@@ -87,7 +87,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       roles: rolesSet,
       permissions: permissionsSet,
       validUntil,
-      exp: Math.floor(Date.now() / 1000) + (15 * 60)
+      exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60)
     };
 
     const accessToken = generateToken(accessTokenSession);
@@ -165,7 +165,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       roles: rolesSet,
       permissions: permissionsSet,
       validUntil,
-      exp: Math.floor(Date.now() / 1000) + (15 * 60)
+      exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60)
     };
 
     const accessToken = generateToken(newSession);
@@ -227,7 +227,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       roles: rolesSet,
       permissions: permissionsSet,
       validUntil,
-      exp: Math.floor(Date.now() / 1000) + (15 * 60)
+      exp: Math.floor(Date.now() / 1000) + (2 * 60 * 60)
     };
 
     const accessToken = generateToken(accessTokenSession);

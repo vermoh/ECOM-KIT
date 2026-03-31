@@ -1,11 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
-import { Permissions } from './auth/permissions.decorator';
+import { Public } from './auth/jwt-auth.guard';
 
 @Controller('health')
 export class HealthController {
   @Get()
-  @Permissions('*') // Allow all authenticated users (or anyone if no JwtAuthGuard on top)
+  @Public()
   check() {
-    return { status: 'ok', timestamp: new Date().toISOString() };
+    return { status: 'ok', service: 'control-plane-api' };
   }
 }

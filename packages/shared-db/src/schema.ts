@@ -222,6 +222,7 @@ export const schemaTemplates = pgTable('schema_templates', {
   confirmedAt: timestamp('confirmed_at'),
   aiModel: text('ai_model').notNull(),
   catalogAnalysis: text('catalog_analysis'), // JSON: CatalogAnalysis from Stage A
+  goldenSamples: text('golden_samples'), // JSON: user-provided example rows with correct enrichment
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -235,6 +236,7 @@ export const schemaFields = pgTable('schema_fields', {
   isRequired: boolean('is_required').default(false).notNull(),
   allowedValues: text('allowed_values').array(),
   description: text('description'),
+  extractionHint: text('extraction_hint'), // user-provided AI instruction for this field
   sortOrder: integer('sort_order').default(0).notNull(),
 });
 

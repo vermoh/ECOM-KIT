@@ -476,6 +476,30 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
       console.warn('[Enrichment] Failed to generate few-shot examples, proceeding without:', err);
     }
 
+    // 2.65 Load golden samples (user-provided reference examples)
+    let goldenSamplesBlock = '';
+    try {
+      if (run.template.goldenSamples) {
+        const samples = JSON.parse(run.template.goldenSamples);
+        if (Array.isArray(samples) && samples.length > 0) {
+          const lines = samples.map((s: any, i: number) => {
+            const entries = Object.entries(s)
+              .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+              .map(([k, v]) => `    ${k}: ${JSON.stringify(v)}`)
+              .join('\n');
+            return `  --- Golden Example ${i + 1} ---\n${entries}`;
+          }).join('\n\n');
+          goldenSamplesBlock = `\nUSER-PROVIDED REFERENCE EXAMPLES (highest priority — match this style and these values exactly):\n${lines}\n`;
+          console.log(`[Enrichment] Loaded ${samples.length} golden samples`);
+        }
+      }
+    } catch (err) {
+      console.warn('[Enrichment] Failed to parse golden samples:', err);
+    }
+    if (goldenSamplesBlock) {
+      fewShotExamples = goldenSamplesBlock + (fewShotExamples ? '\n' + fewShotExamples : '');
+    }
+
     // 2.7 Load cross-org knowledge base (corrections + confirmed examples)
     let knowledgeBlock = '';
     try {

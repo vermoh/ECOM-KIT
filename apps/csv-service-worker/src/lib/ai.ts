@@ -530,6 +530,9 @@ export async function enrichItem(
     if (Array.isArray(f.allowedValues) && f.allowedValues.length) {
       desc += `. MUST be one of: ${f.allowedValues.join(', ')}`;
     }
+    if (f.extractionHint) {
+      desc += `\n  HINT: ${sanitizePromptInput(f.extractionHint, 500)}`;
+    }
     return desc;
   }).join('\n');
 

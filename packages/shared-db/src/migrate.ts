@@ -6,7 +6,10 @@ const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_
 
 async function main() {
   console.log('Running migrations...');
-  const migrationClient = postgres(connectionString, { max: 1 });
+  const migrationClient = postgres(connectionString, {
+    max: 1,
+    ssl: process.env.NODE_ENV === 'production' ? 'require' : false,
+  });
   const db = drizzle(migrationClient);
   
   await migrate(db, { migrationsFolder: './drizzle' });

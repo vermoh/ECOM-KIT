@@ -3,6 +3,8 @@ import { db, exportJobs, uploadJobs, projects, auditLogs, eq, and, withTenant } 
 import { hasPermission } from '@ecom-kit/shared-auth';
 import { exportQueue } from '../lib/queue';
 import { v4 as uuidv4 } from 'uuid';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { s3Client, BUCKET_NAME } from '../lib/s3';
 
 export async function exportRoutes(fastify: FastifyInstance) {
   
@@ -100,6 +102,47 @@ export async function exportRoutes(fastify: FastifyInstance) {
     }
 
     return job;
+  });
+
+  // Download export — stream the file directly from S3 through the API
+  fastify.get('/projects/:projectId/uploads/:uploadId/exports/:id/download', async (request, reply) => {
+    const session = request.userSession!;
+    const { id, uploadId } = request.params as { id: string; uploadId: string };
+
+    if (!hasPermission(session, 'export:read')) {
+      return reply.status(403).send({ error: 'Forbidden: export:read required' });
+    }
+
+    const job = await db.query.exportJobs.findFirst({
+      where: and(
+        eq(exportJobs.id, id),
+        eq(exportJobs.uploadId, uploadId),
+        eq(exportJobs.orgId, session.orgId)
+      )
+    });
+
+    if (!job) {
+      return reply.status(404).send({ error: 'Export job not found' });
+    }
+
+    if (job.status !== 'ready' || !job.s3Key) {
+      return reply.status(400).send({ error: 'Export is not ready for download' });
+    }
+
+    // Fetch file from S3 and send as buffer
+    const s3Response = await s3Client.send(new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: job.s3Key,
+    }));
+
+    const bodyBytes = await s3Response.Body!.transformToByteArray();
+    const buffer = Buffer.from(bodyBytes);
+
+    reply.header('Content-Type', 'text/csv; charset=utf-8');
+    reply.header('Content-Disposition', 'attachment; filename="enriched_export.csv"');
+    reply.header('Content-Length', buffer.length);
+
+    return reply.send(buffer);
   });
 
   // List exports for an upload

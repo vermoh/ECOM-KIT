@@ -9,7 +9,7 @@ const fastify = Fastify({
 });
 
 fastify.register(cors, {
-  origin: true // Allows all origins in development
+  origin: process.env.WEB_ORIGIN || true,
 });
 fastify.register(metricsPlugin, { endpoint: '/metrics' });
 
@@ -79,7 +79,7 @@ fastify.get('/health', async (request, reply) => {
 
 const start = async () => {
   try {
-    const port = Number(process.env.CSV_API_PORT) || 4001;
+    const port = Number(process.env.PORT) || Number(process.env.CSV_API_PORT) || 4001;
     await fastify.listen({ port, host: '0.0.0.0' });
   } catch (err) {
     fastify.log.error(err);

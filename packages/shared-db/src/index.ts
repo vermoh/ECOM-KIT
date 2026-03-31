@@ -7,7 +7,9 @@ import { sql as drizzleSql } from 'drizzle-orm';
 const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
 
 // Create a single connection pool for the application
-export const connection = postgres(connectionString);
+export const connection = postgres(connectionString, {
+  ssl: process.env.NODE_ENV === 'production' ? 'require' : false,
+});
 export const db = drizzle(connection, { schema });
 
 // Export all schema tables
