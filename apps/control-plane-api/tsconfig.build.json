@@ -6,6 +6,8 @@
     "src/**/*.spec.ts",
     "src/**/*.test.ts",
     "src/server.ts",
+    "src/routes/**",
+    "src/guards.ts",
     "src/verify_*.ts"
   ]
 }
