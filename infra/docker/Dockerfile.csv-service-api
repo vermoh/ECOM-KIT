@@ -18,6 +18,11 @@ COPY apps/csv-service-api/ ./apps/csv-service-api/
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
+# Build shared packages first
+RUN pnpm --filter "@ecom-kit/shared-types" build
+RUN pnpm --filter "@ecom-kit/shared-auth" build
+RUN pnpm --filter "@ecom-kit/shared-db" build
+
 # Build the target app
 RUN pnpm --filter @ecom-kit/csv-service-api build
 
