@@ -104,6 +104,7 @@ services:
     name: ecom-kit-redis
     plan: starter
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
 
 envVarGroups:
   - name: s3-credentials
