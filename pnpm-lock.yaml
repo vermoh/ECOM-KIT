@@ -32,6 +32,9 @@ importers:
       '@fastify/cors':
         specifier: ^9.0.1
         version: 9.0.1
+      '@fastify/redis':
+        specifier: ^7.0.1
+        version: 7.2.0
       '@nestjs/common':
         specifier: ^10.0.0
         version: 10.4.22(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -62,6 +65,12 @@ importers:
       drizzle-orm:
         specifier: ^0.30.0
         version: 0.30.10(@opentelemetry/api@1.9.0)(@types/react@19.2.14)(postgres@3.4.8)(react@19.2.3)
+      fastify:
+        specifier: ^4.29.1
+        version: 4.29.1
+      fastify-metrics:
+        specifier: ^11.0.0
+        version: 11.0.0(fastify@4.29.1)
       passport:
         specifier: ^0.7.0
         version: 0.7.0
@@ -1303,6 +1312,9 @@ packages:
 
   '@fastify/merge-json-schemas@0.1.1':
     resolution: {integrity: sha512-fERDVz7topgNjtXsJTTW1JKLy0rhuLRcquYqNR9rF7OcVpCa2OVW49ZPDIhaRRCaUuvVxI+N416xUoF76HNSXA==}
+
+  '@fastify/redis@7.2.0':
+    resolution: {integrity: sha512-Ql8emmkajVBCCz0pRjPFZRFI2069Jrp/iufKb5TJwgBeu7B+oZp+GeZIgf+4WX3EX7Vi/h3KTyGf+5DUWI1oFw==}
 
   '@floating-ui/core@1.7.5':
     resolution: {integrity: sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ==}
@@ -3850,6 +3862,11 @@ packages:
   fast-xml-parser@5.4.1:
     resolution: {integrity: sha512-BQ30U1mKkvXQXXkAGcuyUA/GA26oEB7NzOtsxCDtyu62sjGw5QraKFhx2Em3WQNjPw9PG6MQ9yuIIgkSDfGu5A==}
     hasBin: true
+
+  fastify-metrics@11.0.0:
+    resolution: {integrity: sha512-2nv0pzkuRVRuAmW3fR2vh1FQF7sV/mgzOJ8cz3HjUzByudWvx2IOHKnJLWtUohiD1AaI2QxtLQKTDZv/nASBRQ==}
+    peerDependencies:
+      fastify: '>=4'
 
   fastify-metrics@12.1.0:
     resolution: {integrity: sha512-EpbT+W1jm8kMbkCPvfW4j23y3BZlXGOcO6+75EFTKDxbJIyXbldrFIoVoP0oD4CsqrKeIARvrOjbZNqK5MdRwQ==}
@@ -7558,6 +7575,13 @@ snapshots:
     dependencies:
       fast-deep-equal: 3.1.3
 
+  '@fastify/redis@7.2.0':
+    dependencies:
+      fastify-plugin: 5.1.0
+      ioredis: 5.10.0
+    transitivePeerDependencies:
+      - supports-color
+
   '@floating-ui/core@1.7.5':
     dependencies:
       '@floating-ui/utils': 0.2.11
@@ -10550,6 +10574,12 @@ snapshots:
     dependencies:
       fast-xml-builder: 1.1.4
       strnum: 2.2.0
+
+  fastify-metrics@11.0.0(fastify@4.29.1):
+    dependencies:
+      fastify: 4.29.1
+      fastify-plugin: 4.5.1
+      prom-client: 15.1.3
 
   fastify-metrics@12.1.0(fastify@4.29.1):
     dependencies:
