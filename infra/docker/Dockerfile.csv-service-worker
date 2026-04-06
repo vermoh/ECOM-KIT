@@ -24,6 +24,8 @@ RUN pnpm --filter "@ecom-kit/shared-db" build
 # Build the target app
 RUN pnpm --filter @ecom-kit/csv-service-worker build
 
+RUN npm install -g tsx
+
 ENV NODE_ENV=production
 
-CMD ["node", "apps/csv-service-worker/dist/worker.js"]
+CMD ["tsx", "apps/csv-service-worker/dist/worker.js"]

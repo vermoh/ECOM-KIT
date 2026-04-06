@@ -24,7 +24,9 @@ RUN pnpm --filter "@ecom-kit/shared-db" build
 # Build the target app
 RUN pnpm --filter @ecom-kit/csv-service-api build
 
+RUN npm install -g tsx
+
 ENV NODE_ENV=production
 EXPOSE 4001
 
-CMD ["node", "apps/csv-service-api/dist/server.js"]
+CMD ["tsx", "apps/csv-service-api/dist/server.js"]

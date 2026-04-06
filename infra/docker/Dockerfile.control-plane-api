@@ -24,7 +24,9 @@ RUN pnpm --filter "@ecom-kit/shared-db" build
 # Build the target app
 RUN pnpm --filter @ecom-kit/control-plane-api build
 
+RUN npm install -g tsx
+
 ENV NODE_ENV=production
 EXPOSE 4000
 
-CMD ["node", "apps/control-plane-api/dist/main.js"]
+CMD ["tsx", "apps/control-plane-api/dist/main.js"]
