@@ -55,6 +55,8 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - PORT=4000
       - WEB_ORIGIN=${WEB_ORIGIN}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - S3_ENDPOINT=http://minio:9000
       - S3_BUCKET=${S3_BUCKET}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -66,8 +68,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/v1/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

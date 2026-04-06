@@ -3,8 +3,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install pnpm and tsx
+RUN npm install -g pnpm tsx
 
 # Copy workspace configuration
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json ./
@@ -16,17 +16,13 @@ COPY apps/ ./apps/
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Build shared packages first
+# Build shared packages
 RUN pnpm --filter "@ecom-kit/shared-types" build
 RUN pnpm --filter "@ecom-kit/shared-auth" build
 RUN pnpm --filter "@ecom-kit/shared-db" build
 
-# Build the target app
-RUN pnpm --filter @ecom-kit/control-plane-api build
-
-RUN npm install -g tsx
-
 ENV NODE_ENV=production
 EXPOSE 4000
 
-CMD ["tsx", "apps/control-plane-api/dist/main.js"]
+# Run Fastify server directly with tsx (same as local dev)
+CMD ["tsx", "apps/control-plane-api/src/server.ts"]
