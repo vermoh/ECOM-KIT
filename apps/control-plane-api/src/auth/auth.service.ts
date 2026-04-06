@@ -28,6 +28,18 @@ export class AuthService {
   }
 
   async login(user: any, orgId: string) {
+    // Super admin can login without org
+    if (user.isSuperAdmin && !orgId) {
+      const payload = {
+        sub: user.id,
+        org_id: null,
+        role: 'super_admin',
+        permissions: ['*'],
+        iss: 'ecomkit-cp',
+      };
+      return { access_token: this.jwtService.sign(payload) };
+    }
+
     // Get user membership and role for this org
     const membership = await this.db.query.memberships.findFirst({
       where: and(
