@@ -1,10 +1,3 @@
-databases:
-  - name: ecom-kit-db
-    plan: starter
-    databaseName: ecom_platform
-    user: ecom_user
-    postgresMajorVersion: "16"
-
 services:
   # --- Control Plane API (NestJS) ---
   - type: web
@@ -21,9 +14,7 @@ services:
       - key: PORT
         value: "4000"
       - key: DATABASE_URL
-        fromDatabase:
-          name: ecom-kit-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: WEB_ORIGIN
@@ -58,9 +49,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromDatabase:
-          name: ecom-kit-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           name: ecom-kit-redis
@@ -87,9 +76,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromDatabase:
-          name: ecom-kit-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           name: ecom-kit-redis
