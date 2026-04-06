@@ -13,6 +13,7 @@ services:
     plan: starter
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
     startCommand: node apps/control-plane-api/dist/main.js
+    preDeployCommand: cd packages/shared-db && node dist/migrate.js
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
@@ -72,7 +73,7 @@ services:
       - key: WEB_ORIGIN
         value: https://control-plane-web.onrender.com
       - key: S3_FORCE_PATH_STYLE
-        value: "false"
+        value: "true"
       - fromGroup: s3-credentials
 
   # --- CSV Service Worker (BullMQ background) ---
@@ -95,7 +96,7 @@ services:
           type: redis
           property: connectionString
       - key: S3_FORCE_PATH_STYLE
-        value: "false"
+        value: "true"
       - fromGroup: s3-credentials
 
   # --- Redis ---
@@ -108,7 +109,7 @@ envVarGroups:
   - name: s3-credentials
     envVars:
       - key: S3_ENDPOINT
-        sync: false
+        value: https://14a560a02f5921e022363f82648a912e.r2.cloudflarestorage.com
       - key: S3_BUCKET
         sync: false
       - key: S3_ACCESS_KEY
@@ -116,6 +117,4 @@ envVarGroups:
       - key: S3_SECRET_KEY
         sync: false
       - key: S3_REGION
-        value: us-east-1
-
-preDeployCommand: cd packages/shared-db && node dist/migrate.js
+        value: auto
