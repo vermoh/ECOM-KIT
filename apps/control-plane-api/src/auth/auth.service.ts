@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { RolesService } from '../roles/roles.service';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { DRIZZLE } from '../db/db.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '@ecom-kit/shared-db';

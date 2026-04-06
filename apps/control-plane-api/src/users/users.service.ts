@@ -3,7 +3,7 @@ import { DRIZZLE } from '../db/db.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '@ecom-kit/shared-db';
 import { eq } from '@ecom-kit/shared-db';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class UsersService {
