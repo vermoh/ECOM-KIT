@@ -15,6 +15,13 @@
   "pnpm": {
     "overrides": {
       "drizzle-orm": "^0.30.0"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "bcrypt",
+      "es5-ext",
+      "esbuild",
+      "msgpackr-extract"
+    ]
   }
 }
