@@ -13,7 +13,6 @@ export class AuthController {
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    // Note: In a real app, orgId should be validated or selected from user memberships if not provided
-    return this.authService.login(user, body.orgId);
+    return this.authService.login(user, body.orgId ?? '');
   }
 }
