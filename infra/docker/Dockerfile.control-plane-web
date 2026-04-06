@@ -9,11 +9,9 @@ RUN npm install -g pnpm
 # Copy workspace configuration
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json ./
 
-# Copy shared packages
+# Copy all packages and apps (needed for pnpm workspace resolution)
 COPY packages/ ./packages/
-
-# Copy target application
-COPY apps/control-plane-web/ ./apps/control-plane-web/
+COPY apps/ ./apps/
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
