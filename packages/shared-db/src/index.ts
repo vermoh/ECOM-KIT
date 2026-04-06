@@ -8,7 +8,7 @@ const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_
 
 // Create a single connection pool for the application
 export const connection = postgres(connectionString, {
-  ssl: process.env.NODE_ENV === 'production' ? 'require' : false,
+  ssl: process.env.DB_SSL === 'true' ? 'require' : false,
 });
 export const db = drizzle(connection, { schema });
 

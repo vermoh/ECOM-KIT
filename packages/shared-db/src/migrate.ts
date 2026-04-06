@@ -8,7 +8,7 @@ async function main() {
   console.log('Running migrations...');
   const migrationClient = postgres(connectionString, {
     max: 1,
-    ssl: process.env.NODE_ENV === 'production' ? 'require' : false,
+    ssl: process.env.DB_SSL === 'true' ? 'require' : false,
   });
   const db = drizzle(migrationClient);
   
