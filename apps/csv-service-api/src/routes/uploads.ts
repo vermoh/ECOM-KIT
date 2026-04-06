@@ -60,7 +60,14 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       ContentType: 'text/csv',
     });
 
-    const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    let presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+    // Replace internal S3 endpoint with public one for browser access
+    const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT;
+    const internalEndpoint = process.env.S3_ENDPOINT || 'http://minio:9000';
+    if (publicEndpoint && presignedUrl.startsWith(internalEndpoint)) {
+      presignedUrl = presignedUrl.replace(internalEndpoint, publicEndpoint);
+    }
 
     return {
       uploadJobId: job.id,
