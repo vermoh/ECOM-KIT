@@ -4,10 +4,14 @@ export const TOKEN_KEY = 'ecom_cp_token';
 export const ORG_KEY = 'ecom_cp_org_id';
 
 export interface JwtClaims {
+  sub: string;
   userId: string;
+  org_id: string | null;
   orgId: string;
+  role: string;
   roles: string[];
   permissions: string[];
+  valid_until?: string | null;
   validUntil?: string | null;
   exp: number;
   iat: number;
@@ -32,7 +36,14 @@ export function removeToken() {
 
 export function decodeToken(token: string): JwtClaims | null {
   try {
-    return jwtDecode<JwtClaims>(token);
+    const raw = jwtDecode<any>(token);
+    return {
+      ...raw,
+      userId: raw.sub || raw.userId,
+      orgId: raw.org_id || raw.orgId,
+      roles: raw.roles || (raw.role ? [raw.role] : []),
+      validUntil: raw.valid_until || raw.validUntil,
+    };
   } catch (error) {
     return null;
   }

@@ -34,11 +34,12 @@ export default function LoginPage() {
         throw new Error(data.error || 'Login failed');
       }
 
-      setToken(data.accessToken);
-      if (data.refreshToken) {
-        localStorage.setItem('refreshToken', data.refreshToken);
+      const token = data.access_token || data.accessToken;
+      setToken(token);
+      if (data.refresh_token || data.refreshToken) {
+        localStorage.setItem('refreshToken', data.refresh_token || data.refreshToken);
       }
-      login(data.accessToken, data.orgId);
+      login(token, data.org_id || data.orgId);
     } catch (err: any) {
       setError(err.message);
     } finally {
