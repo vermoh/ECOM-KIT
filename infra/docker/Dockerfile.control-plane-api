@@ -1,5 +1,5 @@
-# Stage 1: Build
-FROM node:22-alpine AS builder
+# Single-stage build (workspace dependencies require full context)
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -24,22 +24,7 @@ RUN pnpm --filter "@ecom-kit/shared-db" build
 # Build the target app
 RUN pnpm --filter @ecom-kit/control-plane-api build
 
-# Stage 2: Runner
-FROM node:22-alpine AS runner
-
-WORKDIR /app
-
-# Install pnpm for prod install
-RUN npm install -g pnpm
-
-COPY --from=builder /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/package.json ./
-COPY --from=builder /app/packages/ ./packages/
-COPY --from=builder /app/apps/control-plane-api/dist ./apps/control-plane-api/dist
-COPY --from=builder /app/apps/control-plane-api/package.json ./apps/control-plane-api/package.json
-
-# Install only production dependencies
-RUN pnpm install --prod --frozen-lockfile --filter @ecom-kit/control-plane-api
-
+ENV NODE_ENV=production
 EXPOSE 4000
 
-CMD ["pnpm", "--filter", "@ecom-kit/control-plane-api", "start:prod"]
+CMD ["node", "apps/control-plane-api/dist/main.js"]
