@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import crypto from 'node:crypto';
 import { verifyToken } from '@ecom-kit/shared-auth';
 import { UserSession } from '@ecom-kit/shared-types';
 import metricsPlugin from 'fastify-metrics';

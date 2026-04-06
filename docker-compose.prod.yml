@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Infrastructure
   postgres:
@@ -38,7 +36,7 @@ services:
       - minio_data:/data
     command: server /data --console-address ":9001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -57,6 +55,8 @@ services:
       - WEB_ORIGIN=${WEB_ORIGIN}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - CSV_SERVICE_TOKEN=${CSV_SERVICE_TOKEN}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - S3_ENDPOINT=http://minio:9000
       - S3_BUCKET=${S3_BUCKET}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -105,6 +105,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
+      - CSV_SERVICE_TOKEN=${CSV_SERVICE_TOKEN}
       - S3_ENDPOINT=http://minio:9000
       - S3_BUCKET=${S3_BUCKET}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -137,6 +138,10 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - CSV_SERVICE_TOKEN=${CSV_SERVICE_TOKEN}
+      - CONTROL_PLANE_URL=http://control-plane-api:4000
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - S3_ENDPOINT=http://minio:9000
       - S3_BUCKET=${S3_BUCKET}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
