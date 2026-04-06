@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, boolean, pgEnum, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, boolean, pgEnum, uniqueIndex, numeric } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Enums
@@ -336,7 +336,20 @@ export const tokenUsageLogs = pgTable('token_usage_logs', {
   tokensUsed: integer('tokens_used').notNull(),
   model: text('model'),
   purpose: text('purpose').notNull(), // enrichment, seo, schema_generation
+  costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const modelPricing = pgTable('model_pricing', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  model: text('model').notNull().unique(),
+  provider: text('provider').notNull().default('openrouter'), // openrouter, openai, anthropic
+  displayName: text('display_name'),
+  inputCostPer1m: numeric('input_cost_per_1m', { precision: 10, scale: 4 }).notNull(), // $ per 1M input tokens
+  outputCostPer1m: numeric('output_cost_per_1m', { precision: 10, scale: 4 }).notNull(), // $ per 1M output tokens
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 

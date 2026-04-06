@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.knowledgeSourceEnum = exports.exportJobsRelations = exports.collisionsRelations = exports.enrichedItemsRelations = exports.enrichmentRunsRelations = exports.reviewTasksRelations = exports.schemaFieldsRelations = exports.schemaTemplatesRelations = exports.seoTasksRelations = exports.uploadJobsRelations = exports.tokenUsageLogs = exports.tokenBudgets = exports.exportJobs = exports.collisions = exports.enrichedItems = exports.enrichmentRuns = exports.reviewTasks = exports.schemaFields = exports.schemaTemplates = exports.providerConfigs = exports.reviewTaskStatusEnum = exports.reviewTaskTypeEnum = exports.schemaFieldTypeEnum = exports.schemaTemplateStatusEnum = exports.providerEnum = exports.refreshTokens = exports.auditLogs = exports.seoTasks = exports.uploadJobs = exports.projects = exports.accessGrants = exports.serviceAccess = exports.services = exports.memberships = exports.rolePermissions = exports.permissions = exports.roles = exports.users = exports.organizations = exports.seoTaskStatusEnum = exports.exportStatusEnum = exports.collisionStatusEnum = exports.enrichedItemStatusEnum = exports.enrichmentRunStatusEnum = exports.uploadJobStatusEnum = exports.serviceStatusEnum = exports.membershipStatusEnum = exports.userStatusEnum = exports.orgStatusEnum = exports.orgPlanEnum = void 0;
-exports.tokenUsageLogsRelations = exports.tokenBudgetsRelations = exports.enrichmentKnowledgeRelations = exports.enrichmentKnowledge = void 0;
+exports.exportJobsRelations = exports.collisionsRelations = exports.enrichedItemsRelations = exports.enrichmentRunsRelations = exports.reviewTasksRelations = exports.schemaFieldsRelations = exports.schemaTemplatesRelations = exports.seoTasksRelations = exports.uploadJobsRelations = exports.modelPricing = exports.tokenUsageLogs = exports.tokenBudgets = exports.exportJobs = exports.collisions = exports.enrichedItems = exports.enrichmentRuns = exports.reviewTasks = exports.schemaFields = exports.schemaTemplates = exports.providerConfigs = exports.reviewTaskStatusEnum = exports.reviewTaskTypeEnum = exports.schemaFieldTypeEnum = exports.schemaTemplateStatusEnum = exports.providerEnum = exports.refreshTokens = exports.auditLogs = exports.seoTasks = exports.uploadJobs = exports.projects = exports.accessGrants = exports.serviceAccess = exports.services = exports.memberships = exports.rolePermissions = exports.permissions = exports.roles = exports.users = exports.organizations = exports.seoTaskStatusEnum = exports.exportStatusEnum = exports.collisionStatusEnum = exports.enrichedItemStatusEnum = exports.enrichmentRunStatusEnum = exports.uploadJobStatusEnum = exports.serviceStatusEnum = exports.membershipStatusEnum = exports.userStatusEnum = exports.orgStatusEnum = exports.orgPlanEnum = void 0;
+exports.tokenUsageLogsRelations = exports.tokenBudgetsRelations = exports.enrichmentKnowledgeRelations = exports.enrichmentKnowledge = exports.knowledgeSourceEnum = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
 const drizzle_orm_1 = require("drizzle-orm");
 // Enums
@@ -312,7 +312,19 @@ exports.tokenUsageLogs = (0, pg_core_1.pgTable)('token_usage_logs', {
     tokensUsed: (0, pg_core_1.integer)('tokens_used').notNull(),
     model: (0, pg_core_1.text)('model'),
     purpose: (0, pg_core_1.text)('purpose').notNull(), // enrichment, seo, schema_generation
+    costUsd: (0, pg_core_1.numeric)('cost_usd', { precision: 12, scale: 6 }),
     createdAt: (0, pg_core_1.timestamp)('created_at').defaultNow().notNull(),
+});
+exports.modelPricing = (0, pg_core_1.pgTable)('model_pricing', {
+    id: (0, pg_core_1.uuid)('id').primaryKey().defaultRandom(),
+    model: (0, pg_core_1.text)('model').notNull().unique(),
+    provider: (0, pg_core_1.text)('provider').notNull().default('openrouter'), // openrouter, openai, anthropic
+    displayName: (0, pg_core_1.text)('display_name'),
+    inputCostPer1m: (0, pg_core_1.numeric)('input_cost_per_1m', { precision: 10, scale: 4 }).notNull(), // $ per 1M input tokens
+    outputCostPer1m: (0, pg_core_1.numeric)('output_cost_per_1m', { precision: 10, scale: 4 }).notNull(), // $ per 1M output tokens
+    isActive: (0, pg_core_1.boolean)('is_active').default(true).notNull(),
+    createdAt: (0, pg_core_1.timestamp)('created_at').defaultNow().notNull(),
+    updatedAt: (0, pg_core_1.timestamp)('updated_at').defaultNow().notNull(),
 });
 // Relations
 exports.uploadJobsRelations = (0, drizzle_orm_1.relations)(exports.uploadJobs, ({ one, many }) => ({

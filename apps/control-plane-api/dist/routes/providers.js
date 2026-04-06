@@ -15,6 +15,9 @@ async function providerRoutes(fastify) {
         preHandler: [(0, guards_js_1.requirePermission)('secret:read_hint')]
     }, async (request, reply) => {
         const session = request.userSession;
+        const targetOrgId = session.roles.includes('super_admin') && request.query?.orgId
+            ? request.query.orgId
+            : session.orgId;
         const configs = await shared_db_1.db.select({
             id: shared_db_2.providerConfigs.id,
             orgId: shared_db_2.providerConfigs.orgId,
@@ -24,13 +27,16 @@ async function providerRoutes(fastify) {
             createdAt: shared_db_2.providerConfigs.createdAt
         })
             .from(shared_db_2.providerConfigs)
-            .where((0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, session.orgId));
+            .where((0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, targetOrgId));
         return configs;
     });
     fastify.post('/', {
         preHandler: [(0, guards_js_1.requirePermission)('secret:create')]
     }, async (request, reply) => {
         const session = request.userSession;
+        const targetOrgId = session.roles.includes('super_admin') && request.query?.orgId
+            ? request.query.orgId
+            : session.orgId;
         const { provider, value } = request.body;
         if (!provider || !value) {
             return reply.status(400).send({ error: 'PROVIDER_AND_VALUE_REQUIRED' });
@@ -38,7 +44,7 @@ async function providerRoutes(fastify) {
         const encryptedValue = (0, shared_auth_1.encrypt)(value, MASTER_KEY);
         const keyHint = value.slice(-4);
         const [newConfig] = await shared_db_1.db.insert(shared_db_2.providerConfigs).values({
-            orgId: session.orgId,
+            orgId: targetOrgId,
             provider,
             encryptedValue,
             keyHint,
@@ -49,7 +55,7 @@ async function providerRoutes(fastify) {
             keyHint: shared_db_2.providerConfigs.keyHint
         });
         await shared_db_1.db.insert(shared_db_2.auditLogs).values({
-            orgId: session.orgId,
+            orgId: targetOrgId,
             userId: session.userId,
             action: 'secret.create',
             resourceType: 'provider_config',
@@ -62,6 +68,9 @@ async function providerRoutes(fastify) {
         preHandler: [(0, guards_js_1.requirePermission)('secret:rotate')]
     }, async (request, reply) => {
         const session = request.userSession;
+        const targetOrgId = session.roles.includes('super_admin') && request.query?.orgId
+            ? request.query.orgId
+            : session.orgId;
         const { id } = request.params;
         const { value } = request.body;
         if (!value) {
@@ -75,7 +84,7 @@ async function providerRoutes(fastify) {
             keyHint,
             rotatedAt: new Date(),
         })
-            .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.providerConfigs.id, id), (0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, session.orgId)))
+            .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.providerConfigs.id, id), (0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, targetOrgId)))
             .returning({
             id: shared_db_2.providerConfigs.id,
             provider: shared_db_2.providerConfigs.provider,
@@ -85,7 +94,7 @@ async function providerRoutes(fastify) {
             return reply.status(404).send({ error: 'NOT_FOUND' });
         }
         await shared_db_1.db.insert(shared_db_2.auditLogs).values({
-            orgId: session.orgId,
+            orgId: targetOrgId,
             userId: session.userId,
             action: 'secret.rotate',
             resourceType: 'provider_config',
@@ -98,15 +107,18 @@ async function providerRoutes(fastify) {
         preHandler: [(0, guards_js_1.requirePermission)('secret:delete')]
     }, async (request, reply) => {
         const session = request.userSession;
+        const targetOrgId = session.roles.includes('super_admin') && request.query?.orgId
+            ? request.query.orgId
+            : session.orgId;
         const { id } = request.params;
         const [deleted] = await shared_db_1.db.delete(shared_db_2.providerConfigs)
-            .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.providerConfigs.id, id), (0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, session.orgId)))
+            .where((0, shared_db_1.and)((0, shared_db_1.eq)(shared_db_2.providerConfigs.id, id), (0, shared_db_1.eq)(shared_db_2.providerConfigs.orgId, targetOrgId)))
             .returning();
         if (!deleted) {
             return reply.status(404).send({ error: 'NOT_FOUND' });
         }
         await shared_db_1.db.insert(shared_db_2.auditLogs).values({
-            orgId: session.orgId,
+            orgId: targetOrgId,
             userId: session.userId,
             action: 'secret.delete',
             resourceType: 'provider_config',

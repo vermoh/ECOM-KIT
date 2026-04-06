@@ -1,14 +1,27 @@
 import { FastifyInstance } from 'fastify';
 import { eq, sql, db } from '@ecom-kit/shared-db';
-import { tokenBudgets, tokenUsageLogs, auditLogs, organizations } from '@ecom-kit/shared-db';
+import { tokenBudgets, tokenUsageLogs, auditLogs, organizations, modelPricing } from '@ecom-kit/shared-db';
 import * as schema from '@ecom-kit/shared-db';
 import { requirePermission } from '../guards.js';
 
+const SERVICE_TOKEN = process.env.CSV_SERVICE_TOKEN || 'csv-service-shared-secret';
+
+function verifyServiceToken(request: any, reply: any): boolean {
+  const authHeader = (request.headers['authorization'] as string) || '';
+  const token = authHeader.replace('Bearer ', '');
+  if (token !== SERVICE_TOKEN) {
+    reply.status(401).send({ error: 'INVALID_SERVICE_TOKEN' });
+    return false;
+  }
+  return true;
+}
+
 export async function billingRoutes(fastify: FastifyInstance) {
-  
+
   // Check token budget BEFORE starting AI task
   // Internal endpoint called by Service Plane
   fastify.post('/budget/check', async (request, reply) => {
+    if (!request.userSession && !verifyServiceToken(request, reply)) return;
     const { orgId, requiredTokens } = request.body as { orgId: string, requiredTokens: number };
 
     const budget = await db.query.tokenBudgets.findFirst({
@@ -38,18 +51,32 @@ export async function billingRoutes(fastify: FastifyInstance) {
   // Record token consumption AFTER AI task completes
   // Internal endpoint called by Service Plane
   fastify.post('/budget/consume', async (request, reply) => {
+    if (!request.userSession && !verifyServiceToken(request, reply)) return;
     const { orgId, serviceId, jobId, tokensUsed, model, purpose } = request.body as any;
+
+    // Calculate cost from model pricing table
+    let costUsd: string | null = null;
+    if (model) {
+      const pricing = await db.query.modelPricing.findFirst({
+        where: eq(modelPricing.model, model),
+      });
+      if (pricing) {
+        // Use average of input/output cost as approximation (no input/output split available)
+        const avgCostPer1m = (Number(pricing.inputCostPer1m) + Number(pricing.outputCostPer1m)) / 2;
+        costUsd = ((tokensUsed / 1_000_000) * avgCostPer1m).toFixed(6);
+      }
+    }
 
     await db.transaction(async (tx) => {
       // 1. Deduct from budget
       await tx.update(tokenBudgets)
-        .set({ 
+        .set({
           remainingTokens: sql`${tokenBudgets.remainingTokens} - ${tokensUsed}`,
           updatedAt: new Date()
         })
         .where(eq(tokenBudgets.orgId, orgId));
 
-      // 2. Log usage
+      // 2. Log usage with cost
       await tx.insert(tokenUsageLogs).values({
         orgId,
         serviceId: serviceId || null,
@@ -57,6 +84,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
         tokensUsed,
         model,
         purpose,
+        costUsd,
       });
 
       // 3. Audit log if significant
@@ -77,14 +105,17 @@ export async function billingRoutes(fastify: FastifyInstance) {
     preHandler: [requirePermission('organization:read')]
   }, async (request, reply) => {
     const session = request.userSession!;
-    
+    const targetOrgId = session.roles.includes('super_admin') && (request.query as any)?.orgId
+      ? (request.query as any).orgId
+      : session.orgId;
+
     let budget = await db.query.tokenBudgets.findFirst({
-      where: eq(tokenBudgets.orgId, session.orgId)
+      where: eq(tokenBudgets.orgId, targetOrgId)
     });
 
     if (!budget) {
         const [newBudget] = await db.insert(tokenBudgets).values({
-            orgId: session.orgId,
+            orgId: targetOrgId,
             totalTokens: 100000,
             remainingTokens: 100000,
           }).returning();
@@ -92,14 +123,21 @@ export async function billingRoutes(fastify: FastifyInstance) {
     }
 
     const recentLogs = await db.query.tokenUsageLogs.findMany({
-      where: eq(tokenUsageLogs.orgId, session.orgId),
+      where: eq(tokenUsageLogs.orgId, targetOrgId),
       orderBy: (logs: any, { desc }: any) => [desc(logs.createdAt)],
       limit: 50
     });
 
+    // Aggregate total cost
+    const [costRow] = await db
+      .select({ totalCost: sql<string>`COALESCE(SUM(${tokenUsageLogs.costUsd}::numeric), 0)` })
+      .from(tokenUsageLogs)
+      .where(eq(tokenUsageLogs.orgId, targetOrgId));
+
     return {
       budget,
-      recentLogs
+      recentLogs,
+      totalCostUsd: Number(costRow?.totalCost ?? 0),
     };
   });
 
@@ -108,6 +146,9 @@ export async function billingRoutes(fastify: FastifyInstance) {
     preHandler: [requirePermission('organization:read')]
   }, async (request, reply) => {
     const session = request.userSession!;
+    const targetOrgId = session.roles.includes('super_admin') && (request.body as any)?.orgId
+      ? (request.body as any).orgId
+      : session.orgId;
     const { totalTokens, resetRemaining } = request.body as { totalTokens: number; resetRemaining?: boolean };
 
     if (!totalTokens || typeof totalTokens !== 'number' || totalTokens < 1) {
@@ -115,7 +156,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
     }
 
     const existing = await db.query.tokenBudgets.findFirst({
-      where: eq(tokenBudgets.orgId, session.orgId)
+      where: eq(tokenBudgets.orgId, targetOrgId)
     });
 
     if (existing) {
@@ -128,11 +169,11 @@ export async function billingRoutes(fastify: FastifyInstance) {
       }
       const [updated] = await db.update(tokenBudgets)
         .set(updates)
-        .where(eq(tokenBudgets.orgId, session.orgId))
+        .where(eq(tokenBudgets.orgId, targetOrgId))
         .returning();
 
       await db.insert(auditLogs).values({
-        orgId: session.orgId,
+        orgId: targetOrgId,
         userId: session.userId,
         actorType: 'user',
         action: 'billing.limit_updated',
@@ -144,7 +185,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
       return updated;
     } else {
       const [created] = await db.insert(tokenBudgets).values({
-        orgId: session.orgId,
+        orgId: targetOrgId,
         totalTokens,
         remainingTokens: totalTokens,
       }).returning();

@@ -28,6 +28,16 @@ async function billingRoutes(fastify) {
     });
     fastify.post('/budget/consume', async (request, reply) => {
         const { orgId, serviceId, jobId, tokensUsed, model, purpose } = request.body;
+        let costUsd = null;
+        if (model) {
+            const pricing = await shared_db_1.db.query.modelPricing.findFirst({
+                where: (0, shared_db_1.eq)(shared_db_2.modelPricing.model, model),
+            });
+            if (pricing) {
+                const avgCostPer1m = (Number(pricing.inputCostPer1m) + Number(pricing.outputCostPer1m)) / 2;
+                costUsd = ((tokensUsed / 1_000_000) * avgCostPer1m).toFixed(6);
+            }
+        }
         await shared_db_1.db.transaction(async (tx) => {
             await tx.update(shared_db_2.tokenBudgets)
                 .set({
@@ -42,6 +52,7 @@ async function billingRoutes(fastify) {
                 tokensUsed,
                 model,
                 purpose,
+                costUsd,
             });
             if (tokensUsed > 1000) {
                 await tx.insert(shared_db_2.auditLogs).values({
@@ -57,37 +68,48 @@ async function billingRoutes(fastify) {
         preHandler: [(0, guards_js_1.requirePermission)('organization:read')]
     }, async (request, reply) => {
         const session = request.userSession;
+        const targetOrgId = session.roles.includes('super_admin') && request.query?.orgId
+            ? request.query.orgId
+            : session.orgId;
         let budget = await shared_db_1.db.query.tokenBudgets.findFirst({
-            where: (0, shared_db_1.eq)(shared_db_2.tokenBudgets.orgId, session.orgId)
+            where: (0, shared_db_1.eq)(shared_db_2.tokenBudgets.orgId, targetOrgId)
         });
         if (!budget) {
             const [newBudget] = await shared_db_1.db.insert(shared_db_2.tokenBudgets).values({
-                orgId: session.orgId,
+                orgId: targetOrgId,
                 totalTokens: 100000,
                 remainingTokens: 100000,
             }).returning();
             budget = newBudget;
         }
         const recentLogs = await shared_db_1.db.query.tokenUsageLogs.findMany({
-            where: (0, shared_db_1.eq)(shared_db_2.tokenUsageLogs.orgId, session.orgId),
+            where: (0, shared_db_1.eq)(shared_db_2.tokenUsageLogs.orgId, targetOrgId),
             orderBy: (logs, { desc }) => [desc(logs.createdAt)],
             limit: 50
         });
+        const [costRow] = await shared_db_1.db
+            .select({ totalCost: (0, shared_db_1.sql) `COALESCE(SUM(${shared_db_2.tokenUsageLogs.costUsd}::numeric), 0)` })
+            .from(shared_db_2.tokenUsageLogs)
+            .where((0, shared_db_1.eq)(shared_db_2.tokenUsageLogs.orgId, targetOrgId));
         return {
             budget,
-            recentLogs
+            recentLogs,
+            totalCostUsd: Number(costRow?.totalCost ?? 0),
         };
     });
     fastify.patch('/budget/limit', {
         preHandler: [(0, guards_js_1.requirePermission)('organization:read')]
     }, async (request, reply) => {
         const session = request.userSession;
+        const targetOrgId = session.roles.includes('super_admin') && request.body?.orgId
+            ? request.body.orgId
+            : session.orgId;
         const { totalTokens, resetRemaining } = request.body;
         if (!totalTokens || typeof totalTokens !== 'number' || totalTokens < 1) {
             return reply.status(400).send({ error: 'totalTokens must be a positive number' });
         }
         const existing = await shared_db_1.db.query.tokenBudgets.findFirst({
-            where: (0, shared_db_1.eq)(shared_db_2.tokenBudgets.orgId, session.orgId)
+            where: (0, shared_db_1.eq)(shared_db_2.tokenBudgets.orgId, targetOrgId)
         });
         if (existing) {
             const updates = { totalTokens, updatedAt: new Date() };
@@ -99,10 +121,10 @@ async function billingRoutes(fastify) {
             }
             const [updated] = await shared_db_1.db.update(shared_db_2.tokenBudgets)
                 .set(updates)
-                .where((0, shared_db_1.eq)(shared_db_2.tokenBudgets.orgId, session.orgId))
+                .where((0, shared_db_1.eq)(shared_db_2.tokenBudgets.orgId, targetOrgId))
                 .returning();
             await shared_db_1.db.insert(shared_db_2.auditLogs).values({
-                orgId: session.orgId,
+                orgId: targetOrgId,
                 userId: session.userId,
                 actorType: 'user',
                 action: 'billing.limit_updated',
@@ -114,7 +136,7 @@ async function billingRoutes(fastify) {
         }
         else {
             const [created] = await shared_db_1.db.insert(shared_db_2.tokenBudgets).values({
-                orgId: session.orgId,
+                orgId: targetOrgId,
                 totalTokens,
                 remainingTokens: totalTokens,
             }).returning();

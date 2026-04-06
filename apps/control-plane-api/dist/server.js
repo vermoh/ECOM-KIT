@@ -83,6 +83,7 @@ const providers_js_1 = require("./routes/providers.js");
 const services_js_1 = require("./routes/services.js");
 const grants_js_1 = require("./routes/grants.js");
 const billing_js_1 = require("./routes/billing.js");
+const admin_js_1 = require("./routes/admin.js");
 fastify.register(auth_js_1.authRoutes, { prefix: '/api/v1/auth' });
 fastify.register(organizations_js_1.organizationRoutes, { prefix: '/api/v1/organizations' });
 fastify.register(memberships_js_1.membershipRoutes, { prefix: '/api/v1/memberships' });
@@ -90,6 +91,7 @@ fastify.register(providers_js_1.providerRoutes, { prefix: '/api/v1/providers' })
 fastify.register(services_js_1.serviceRoutes, { prefix: '/api/v1/services' });
 fastify.register(grants_js_1.grantRoutes, { prefix: '/api/v1/grants' });
 fastify.register(billing_js_1.billingRoutes, { prefix: '/api/v1/billing' });
+fastify.register(admin_js_1.adminRoutes, { prefix: '/api/v1/admin' });
 fastify.get('/health', async (request, reply) => {
     return { status: 'ok', service: 'control-plane-api' };
 });

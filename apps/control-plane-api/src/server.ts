@@ -42,7 +42,15 @@ import crypto from 'node:crypto';
 // Auth Guard Hook
 fastify.addHook('onRequest', async (request, reply) => {
   // Allow health checks and auth routes unconditionally
-  if (request.url === '/health' || request.url.startsWith('/api/v1/auth') || request.url === '/api/v1/grants/verify') return;
+  if (
+    request.url === '/health' ||
+    request.url.startsWith('/api/v1/auth') ||
+    request.url === '/api/v1/grants/verify' ||
+    request.url === '/api/v1/grants/issue-internal' ||
+    request.url === '/api/v1/billing/budget/check' ||
+    request.url === '/api/v1/billing/budget/consume' ||
+    request.url === '/api/v1/billing/webhook'
+  ) return;
 
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -106,6 +114,7 @@ import { providerRoutes } from './routes/providers.js';
 import { serviceRoutes } from './routes/services.js';
 import { grantRoutes } from './routes/grants.js';
 import { billingRoutes } from './routes/billing.js';
+import { adminRoutes } from './routes/admin.js';
 
 // Routes
 fastify.register(authRoutes, { prefix: '/api/v1/auth' });
@@ -115,6 +124,7 @@ fastify.register(providerRoutes, { prefix: '/api/v1/providers' });
 fastify.register(serviceRoutes, { prefix: '/api/v1/services' });
 fastify.register(grantRoutes, { prefix: '/api/v1/grants' });
 fastify.register(billingRoutes, { prefix: '/api/v1/billing' });
+fastify.register(adminRoutes, { prefix: '/api/v1/admin' });
 
 
 fastify.get('/health', async (request, reply) => {

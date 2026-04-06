@@ -16,7 +16,10 @@ export async function providerRoutes(fastify: FastifyInstance) {
     preHandler: [requirePermission('secret:read_hint')]
   }, async (request, reply) => {
     const session = request.userSession!;
-    
+    const targetOrgId = session.roles.includes('super_admin') && (request.query as any)?.orgId
+      ? (request.query as any).orgId
+      : session.orgId;
+
     // RLS handles org isolation, but we explicitly filter by orgId for safety
     const configs = await db.select({
       id: providerConfigs.id,
@@ -27,7 +30,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
       createdAt: providerConfigs.createdAt
     })
     .from(providerConfigs)
-    .where(eq(providerConfigs.orgId, session.orgId));
+    .where(eq(providerConfigs.orgId, targetOrgId));
     
     return configs;
   });
@@ -36,17 +39,20 @@ export async function providerRoutes(fastify: FastifyInstance) {
     preHandler: [requirePermission('secret:create')]
   }, async (request, reply) => {
     const session = request.userSession!;
+    const targetOrgId = session.roles.includes('super_admin') && (request.query as any)?.orgId
+      ? (request.query as any).orgId
+      : session.orgId;
     const { provider, value } = request.body as any;
-    
+
     if (!provider || !value) {
       return reply.status(400).send({ error: 'PROVIDER_AND_VALUE_REQUIRED' });
     }
 
     const encryptedValue = encrypt(value, MASTER_KEY);
     const keyHint = value.slice(-4);
-    
+
     const [newConfig] = await db.insert(providerConfigs).values({
-      orgId: session.orgId,
+      orgId: targetOrgId,
       provider,
       encryptedValue,
       keyHint,
@@ -58,7 +64,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
     });
 
     await db.insert(auditLogs).values({
-      orgId: session.orgId,
+      orgId: targetOrgId,
       userId: session.userId,
       action: 'secret.create',
       resourceType: 'provider_config',
@@ -73,6 +79,9 @@ export async function providerRoutes(fastify: FastifyInstance) {
     preHandler: [requirePermission('secret:rotate')]
   }, async (request, reply) => {
     const session = request.userSession!;
+    const targetOrgId = session.roles.includes('super_admin') && (request.query as any)?.orgId
+      ? (request.query as any).orgId
+      : session.orgId;
     const { id } = request.params as any;
     const { value } = request.body as any;
 
@@ -84,14 +93,14 @@ export async function providerRoutes(fastify: FastifyInstance) {
     const keyHint = value.slice(-4);
 
     const [updated] = await db.update(providerConfigs)
-      .set({ 
-        encryptedValue, 
-        keyHint, 
+      .set({
+        encryptedValue,
+        keyHint,
         rotatedAt: new Date(),
       })
       .where(and(
         eq(providerConfigs.id, id),
-        eq(providerConfigs.orgId, session.orgId)
+        eq(providerConfigs.orgId, targetOrgId)
       ))
       .returning({
         id: providerConfigs.id,
@@ -104,7 +113,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
     }
 
     await db.insert(auditLogs).values({
-      orgId: session.orgId,
+      orgId: targetOrgId,
       userId: session.userId,
       action: 'secret.rotate',
       resourceType: 'provider_config',
@@ -119,12 +128,15 @@ export async function providerRoutes(fastify: FastifyInstance) {
     preHandler: [requirePermission('secret:delete')]
   }, async (request, reply) => {
     const session = request.userSession!;
+    const targetOrgId = session.roles.includes('super_admin') && (request.query as any)?.orgId
+      ? (request.query as any).orgId
+      : session.orgId;
     const { id } = request.params as any;
 
     const [deleted] = await db.delete(providerConfigs)
       .where(and(
         eq(providerConfigs.id, id),
-        eq(providerConfigs.orgId, session.orgId)
+        eq(providerConfigs.orgId, targetOrgId)
       ))
       .returning();
 
@@ -133,7 +145,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
     }
 
     await db.insert(auditLogs).values({
-      orgId: session.orgId,
+      orgId: targetOrgId,
       userId: session.userId,
       action: 'secret.delete',
       resourceType: 'provider_config',

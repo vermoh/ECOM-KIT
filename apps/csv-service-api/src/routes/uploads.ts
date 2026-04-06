@@ -7,6 +7,9 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 import { csvParsingQueue } from '../lib/queue';
 
+const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:4000';
+const SERVICE_TOKEN = process.env.CSV_SERVICE_TOKEN || 'csv-service-shared-secret';
+
 export async function uploadRoutes(fastify: FastifyInstance) {
   
   // Request a pre-signed URL for CSV upload
@@ -39,18 +42,16 @@ export async function uploadRoutes(fastify: FastifyInstance) {
     const s3Key = `${session.orgId}/${projectId}/${uploadJobId}/${filename}`;
 
     // Create UploadJob in PENDING status
-    const [job] = await withTenant(session.orgId, async (tx) => {
-      return tx.insert(uploadJobs).values({
-        id: uploadJobId,
-        orgId: session.orgId,
-        projectId,
-        status: 'pending',
-        s3Key,
-        originalFilename: filename,
-        includeSeo: includeSeo || false,
-        catalogContext: catalogContext || null,
-      }).returning();
-    });
+    const [job] = await db.insert(uploadJobs).values({
+      id: uploadJobId,
+      orgId: session.orgId,
+      projectId,
+      status: 'pending',
+      s3Key,
+      originalFilename: filename,
+      includeSeo: includeSeo || false,
+      catalogContext: catalogContext || null,
+    }).returning();
 
     // Generate Pre-signed URL
     const command = new PutObjectCommand({
@@ -144,9 +145,32 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: 'Job already in progress or completed' });
     }
 
-    // Extract bearer token from header to pass as access grant
-    const authHeader = request.headers.authorization;
-    const accessGrantToken = authHeader?.replace('Bearer ', '');
+    // Issue a proper AccessGrant token for the worker (instead of passing the user's JWT)
+    let accessGrantToken: string | undefined;
+    try {
+      const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue-internal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SERVICE_TOKEN}`
+        },
+        body: JSON.stringify({
+          serviceSlug: 'csv-service-worker',
+          scopes: ['secret:read'],
+          orgId: session.orgId
+        })
+      });
+      if (grantRes.ok) {
+        const grantData = await grantRes.json() as any;
+        accessGrantToken = grantData.token;
+        console.log('[Upload] AccessGrant issued successfully for parsing job');
+      } else {
+        const errBody = await grantRes.text();
+        console.error(`[Upload] Failed to issue AccessGrant: ${grantRes.status} ${errBody}`);
+      }
+    } catch (err) {
+      console.error('[Upload] Failed to issue AccessGrant:', err);
+    }
 
     // Add to parsing queue
     await csvParsingQueue.add('csv-parsing', {

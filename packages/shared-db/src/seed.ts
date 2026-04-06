@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { isNull } from 'drizzle-orm';
-import { users, roles, permissions, rolePermissions } from './schema.js';
+import { isNull, eq } from 'drizzle-orm';
+import { users, roles, permissions, rolePermissions, services, serviceAccess, organizations } from './schema.js';
 import { hashPassword } from '@ecom-kit/shared-auth';
 
 const connectionString = process.env.DATABASE_URL || 'postgres://ecom_user:ecom_password@localhost:5432/ecom_platform';
@@ -141,6 +141,39 @@ async function seed() {
     target: [users.email],
     set: { status: 'active', isSuperAdmin: true }
   });
+
+  // 5. Register csv-service-worker service
+  console.log('Registering csv-service-worker service...');
+  const [csvService] = await db.insert(services).values({
+    slug: 'csv-service-worker',
+    name: 'CSV Service Worker',
+    baseUrl: process.env.CSV_SERVICE_URL || 'http://localhost:4001',
+    version: '1.0.0',
+    status: 'active',
+  }).onConflictDoUpdate({
+    target: [services.slug],
+    set: { status: 'active' }
+  }).returning();
+
+  // 6. Grant all existing organizations access to csv-service-worker
+  console.log('Granting service access to all organizations...');
+  const allOrgs = await db.select({ id: organizations.id }).from(organizations);
+  const adminUser = await db.select({ id: users.id }).from(users).where(eq(users.isSuperAdmin, true)).limit(1);
+  const grantedBy = adminUser[0]?.id;
+
+  if (grantedBy && allOrgs.length > 0) {
+    await db.insert(serviceAccess).values(
+      allOrgs.map(org => ({
+        orgId: org.id,
+        serviceId: csvService.id,
+        enabled: true,
+        grantedBy,
+      }))
+    ).onConflictDoNothing();
+    console.log(`Granted csv-service-worker access to ${allOrgs.length} organization(s)`);
+  } else {
+    console.log('No organizations found — service access will be granted when orgs are created');
+  }
 
   console.log('Seed complete!');
   process.exit(0);
