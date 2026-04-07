@@ -200,7 +200,7 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
                 <label htmlFor="language" className="text-sm font-medium">
                   Language <span className="text-zinc-400 font-normal">(optional)</span>
                 </label>
-                <Select value={selectedLang} onValueChange={setSelectedLang}>
+                <Select value={selectedLang} onValueChange={(v) => setSelectedLang(v ?? '')}>
                   <SelectTrigger id="language" className="w-full">
                     <SelectValue placeholder="Auto-detect" />
                   </SelectTrigger>

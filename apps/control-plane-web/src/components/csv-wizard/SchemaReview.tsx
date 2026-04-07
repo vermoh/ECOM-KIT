@@ -309,7 +309,7 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
       <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
         <Globe className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">Language:</span>
-        <Select value={currentLang} onValueChange={setCurrentLang}>
+        <Select value={currentLang} onValueChange={(v) => setCurrentLang(v ?? '')}>
           <SelectTrigger className="h-8 w-[180px]">
             <SelectValue placeholder="Auto-detected" />
           </SelectTrigger>
