@@ -168,7 +168,7 @@ export async function processParsingJob(job: Job<CSVJobData>) {
 
     let rowCount = 0;
     const parser = (response.Body as Readable).pipe(
-      parse({ columns: true, skip_empty_lines: true })
+      parse({ columns: true, skip_empty_lines: true, bom: true })
     );
 
     for await (const _ of parser) {
@@ -221,7 +221,7 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
     // 1. Get sample data from S3 — read up to 40 rows to capture product variety
     const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
     const response = await s3Client.send(command);
-    const parser = (response.Body as Readable).pipe(parse({ columns: true, to_line: 40 }));
+    const parser = (response.Body as Readable).pipe(parse({ columns: true, to_line: 40, bom: true }));
 
     const allSampleRows: any[] = [];
     for await (const row of parser) {
@@ -464,7 +464,7 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
       const sampleCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
       const sampleRes = await s3Client.send(sampleCmd);
       const sampleParser = (sampleRes.Body as Readable).pipe(
-        parse({ columns: true, to: 8, skip_empty_lines: true, cast: false })
+        parse({ columns: true, to: 8, skip_empty_lines: true, cast: false, bom: true })
       );
       const sampleRows: any[] = [];
       for await (const row of sampleParser) sampleRows.push(row);
@@ -519,7 +519,7 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
     if (!response.Body) throw new Error('Empty S3 body');
 
     const parser = (response.Body as Readable).pipe(
-      parse({ columns: true, skip_empty_lines: true, cast: false })
+      parse({ columns: true, skip_empty_lines: true, cast: false, bom: true })
     );
 
     let totalTokens = 0;
@@ -1168,7 +1168,7 @@ export async function processExportJob(job: Job<ExportJobData>) {
 
     let originalHeaders: string[] = [];
     const headerParser = (originalS3Resp.Body as Readable).pipe(
-      parse({ columns: true, to: 1 })
+      parse({ columns: true, to: 1, bom: true })
     );
     for await (const firstRow of headerParser) {
       originalHeaders = Object.keys(firstRow);
@@ -1197,7 +1197,7 @@ export async function processExportJob(job: Job<ExportJobData>) {
     const csvRows: any[] = [];
     let rowIdx = 0;
     const originalParser = (csvS3Resp.Body as Readable).pipe(
-      parse({ columns: true, skip_empty_lines: true, cast: false })
+      parse({ columns: true, skip_empty_lines: true, cast: false, bom: true })
     );
 
     for await (const rawRow of originalParser) {
