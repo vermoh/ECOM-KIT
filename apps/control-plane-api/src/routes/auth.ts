@@ -54,7 +54,17 @@ export async function authRoutes(fastify: FastifyInstance) {
     let validUntil: string | undefined;
 
     if (user.isSuperAdmin) {
-      sessionOrgId = orgId || '00000000-0000-0000-0000-000000000001'; // Default Org (must exist in orgs table)
+      if (!sessionOrgId) {
+        // Try to use the admin's actual org membership first
+        const adminMembership = await db
+          .select()
+          .from(memberships)
+          .where(and(eq(memberships.userId, user.id), eq(memberships.status, 'active')))
+          .limit(1);
+        sessionOrgId = adminMembership.length > 0
+          ? adminMembership[0].orgId
+          : '00000000-0000-0000-0000-000000000001';
+      }
       rolesSet = ['super_admin'];
       permissionsSet = ['*'];
     } else {
