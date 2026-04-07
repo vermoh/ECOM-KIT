@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Building2, Users, Server, Shield, Key, Coins, BarChart3, ScrollText, ArrowLeft, DollarSign } from 'lucide-react';
+import { LayoutDashboard, Building2, Users, Server, Shield, Key, Coins, BarChart3, ScrollText, ArrowLeft, DollarSign, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const adminNavItems = [
@@ -17,6 +17,7 @@ const adminNavItems = [
   { href: '/admin/usage', label: 'Usage Stats', icon: BarChart3 },
   { href: '/admin/model-pricing', label: 'Model Pricing', icon: DollarSign },
   { href: '/admin/audit-log', label: 'Audit Log', icon: ScrollText },
+  { href: '/admin/languages', label: 'Languages', icon: Globe },
 ];
 
 export function AdminSidebar() {
