@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2, Plus, Pencil, Trash2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -64,6 +65,8 @@ function statusColor(status: OrgStatus): string {
 
 export default function AdminOrganizationsPage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.organizations');
+  const tc = useTranslations('common');
 
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,7 +125,7 @@ export default function AdminOrganizationsPage() {
     e.preventDefault();
     setFormError('');
     if (!form.name.trim() || !form.slug.trim()) {
-      setFormError('Name and slug are required.');
+      setFormError(t('nameRequired'));
       return;
     }
     setIsSaving(true);
@@ -201,16 +204,16 @@ export default function AdminOrganizationsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Organizations</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
         <Button onClick={openCreate}>
           <Plus className="mr-2 h-4 w-4" />
-          Create Organization
+          {t('createOrganization')}
         </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>All Organizations</CardTitle>
+          <CardTitle>{t('allOrganizations')}</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -219,17 +222,17 @@ export default function AdminOrganizationsPage() {
             </div>
           ) : orgs.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
-              No organizations found.
+              {t('noOrganizations')}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Slug</TableHead>
-                  <TableHead>Plan</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t('name')}</TableHead>
+                  <TableHead>{t('slug')}</TableHead>
+                  <TableHead>{t('plan')}</TableHead>
+                  <TableHead>{t('status')}</TableHead>
+                  <TableHead className="text-right">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -261,7 +264,7 @@ export default function AdminOrganizationsPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => openEdit(org)}
-                          title="Edit"
+                          title={t('edit')}
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -270,16 +273,16 @@ export default function AdminOrganizationsPage() {
                           size="sm"
                           onClick={() => handleToggleStatus(org)}
                           disabled={org.status === 'deleted'}
-                          title={org.status === 'active' ? 'Suspend' : 'Activate'}
+                          title={org.status === 'active' ? t('suspend') : t('activate')}
                         >
-                          {org.status === 'active' ? 'Suspend' : 'Activate'}
+                          {org.status === 'active' ? t('suspend') : t('activate')}
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           className="text-destructive hover:text-destructive"
                           onClick={() => setDeleteTarget(org)}
-                          title="Delete"
+                          title={t('delete')}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -298,12 +301,12 @@ export default function AdminOrganizationsPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {editingOrg ? 'Edit Organization' : 'Create Organization'}
+              {editingOrg ? t('editOrgDialog') : t('createOrgDialog')}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSave} className="space-y-4 pt-2">
             <div className="space-y-2">
-              <Label htmlFor="org-name">Name</Label>
+              <Label htmlFor="org-name">{t('name')}</Label>
               <Input
                 id="org-name"
                 value={form.name}
@@ -313,55 +316,55 @@ export default function AdminOrganizationsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="org-slug">Slug</Label>
+              <Label htmlFor="org-slug">{t('slugLabel')}</Label>
               <Input
                 id="org-slug"
                 value={form.slug}
                 onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
-                placeholder="acme-corp"
+                placeholder={t('slugPlaceholder')}
                 disabled={isSaving}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="org-plan">Plan</Label>
+              <Label htmlFor="org-plan">{t('planLabel')}</Label>
               <Select
                 value={form.plan}
                 onValueChange={(v) => setForm((f) => ({ ...f, plan: v as OrgPlan }))}
                 disabled={isSaving}
               >
                 <SelectTrigger id="org-plan">
-                  <SelectValue placeholder="Select plan" />
+                  <SelectValue placeholder={t('selectPlan')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="free">Free</SelectItem>
-                  <SelectItem value="starter">Starter</SelectItem>
-                  <SelectItem value="pro">Pro</SelectItem>
-                  <SelectItem value="enterprise">Enterprise</SelectItem>
+                  <SelectItem value="free">{t('free')}</SelectItem>
+                  <SelectItem value="starter">{t('starter')}</SelectItem>
+                  <SelectItem value="pro">{t('pro')}</SelectItem>
+                  <SelectItem value="enterprise">{t('enterprise')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="org-maxUsers">Max Users</Label>
+                <Label htmlFor="org-maxUsers">{t('maxUsersLabel')}</Label>
                 <Input
                   id="org-maxUsers"
                   type="number"
                   min={1}
                   value={form.maxUsers}
                   onChange={(e) => setForm((f) => ({ ...f, maxUsers: e.target.value }))}
-                  placeholder="50"
+                  placeholder={t('maxUsersPlaceholder')}
                   disabled={isSaving}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="org-maxProjects">Max Projects</Label>
+                <Label htmlFor="org-maxProjects">{t('maxProjectsLabel')}</Label>
                 <Input
                   id="org-maxProjects"
                   type="number"
                   min={1}
                   value={form.maxProjects}
                   onChange={(e) => setForm((f) => ({ ...f, maxProjects: e.target.value }))}
-                  placeholder="10"
+                  placeholder={t('maxProjectsPlaceholder')}
                   disabled={isSaving}
                 />
               </div>
@@ -378,11 +381,11 @@ export default function AdminOrganizationsPage() {
                 onClick={() => setDialogOpen(false)}
                 disabled={isSaving}
               >
-                Cancel
+                {tc('cancel')}
               </Button>
               <Button type="submit" disabled={isSaving}>
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {editingOrg ? 'Save Changes' : 'Create'}
+                {editingOrg ? t('saveChanges') : t('create')}
               </Button>
             </DialogFooter>
           </form>
@@ -393,12 +396,12 @@ export default function AdminOrganizationsPage() {
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete Organization</DialogTitle>
+            <DialogTitle>{t('deleteOrgDialog')}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            Are you sure you want to delete{' '}
-            <span className="font-semibold text-foreground">{deleteTarget?.name}</span>?
-            This action cannot be undone.
+            {t('deleteConfirm')}{' '}
+            <span className="font-semibold text-foreground">{deleteTarget?.name}</span>?{' '}
+            {t('cannotUndo')}
           </p>
           <DialogFooter>
             <Button
@@ -406,7 +409,7 @@ export default function AdminOrganizationsPage() {
               onClick={() => setDeleteTarget(null)}
               disabled={isDeleting}
             >
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -414,7 +417,7 @@ export default function AdminOrganizationsPage() {
               disabled={isDeleting}
             >
               {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete
+              {t('delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

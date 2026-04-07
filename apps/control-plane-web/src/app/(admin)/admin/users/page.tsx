@@ -31,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2, Plus, Pencil, Trash2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const LIMIT = 50;
@@ -65,6 +66,8 @@ function statusColor(status: string): string {
 
 export default function AdminUsersPage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.users');
+  const tc = useTranslations('common');
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);
@@ -345,30 +348,30 @@ export default function AdminUsersPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Admin — Users</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
         <Button onClick={openCreateDialog}>
           <Plus className="mr-2 h-4 w-4" />
-          Create User
+          {t('createUser')}
         </Button>
       </div>
 
       {/* Filters */}
       <div className="flex gap-3 items-center">
         <Input
-          placeholder="Search by email..."
+          placeholder={t('searchByEmail')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-sm"
         />
         <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
           <SelectTrigger className="w-40">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder={tc('status')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="locked">Locked</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="all">{t('allUsers')}</SelectItem>
+            <SelectItem value="active">{t('active')}</SelectItem>
+            <SelectItem value="locked">{t('locked')}</SelectItem>
+            <SelectItem value="pending">{t('pending')}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -381,23 +384,23 @@ export default function AdminUsersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Users {total > 0 && <span className="text-muted-foreground font-normal text-base">({total} total)</span>}</CardTitle>
+          <CardTitle>{t('users')} {total > 0 && <span className="text-muted-foreground font-normal text-base">({total} {t('total')})</span>}</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">Loading...</div>
+            <div className="py-12 text-center text-muted-foreground text-sm">{tc('loading')}</div>
           ) : users.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">No users found.</div>
+            <div className="py-12 text-center text-muted-foreground text-sm">{t('noUsers')}</div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Super Admin</TableHead>
-                  <TableHead>Organizations</TableHead>
-                  <TableHead>Created At</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t('tableEmail')}</TableHead>
+                  <TableHead>{t('tableStatus')}</TableHead>
+                  <TableHead>{t('superAdmin')}</TableHead>
+                  <TableHead>{t('organizations')}</TableHead>
+                  <TableHead>{t('createdAt')}</TableHead>
+                  <TableHead className="text-right">{t('tableActions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -411,7 +414,7 @@ export default function AdminUsersPage() {
                     </TableCell>
                     <TableCell>
                       {user.isSuperAdmin && (
-                        <Badge variant="secondary">Super Admin</Badge>
+                        <Badge variant="secondary">{t('superAdmin')}</Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-sm max-w-xs">
@@ -445,10 +448,10 @@ export default function AdminUsersPage() {
                           onClick={() => handleToggleStatus(user)}
                         >
                           {togglingId === user.id
-                            ? 'Saving...'
+                            ? t('saving')
                             : user.status === 'locked'
-                            ? 'Unlock'
-                            : 'Lock'}
+                            ? t('unlock')
+                            : t('lock')}
                         </Button>
                         <Button
                           variant="outline"
@@ -477,7 +480,7 @@ export default function AdminUsersPage() {
       {/* Pagination */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
-          Page {page} of {totalPages}
+          {t('pageOf')} {page} {t('of')} {totalPages}
         </span>
         <div className="flex gap-2">
           <Button
@@ -486,7 +489,7 @@ export default function AdminUsersPage() {
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1 || loading}
           >
-            Previous
+            {t('previous')}
           </Button>
           <Button
             variant="outline"
@@ -494,7 +497,7 @@ export default function AdminUsersPage() {
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages || loading}
           >
-            Next
+            {t('next')}
           </Button>
         </div>
       </div>
@@ -503,7 +506,7 @@ export default function AdminUsersPage() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create User</DialogTitle>
+            <DialogTitle>{t('createUserDialog')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {createError && (
@@ -512,21 +515,21 @@ export default function AdminUsersPage() {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="create-email">Email</Label>
+              <Label htmlFor="create-email">{t('emailLabel')}</Label>
               <Input
                 id="create-email"
                 type="email"
-                placeholder="user@example.com"
+                placeholder={t('emailPlaceholder')}
                 value={createEmail}
                 onChange={(e) => setCreateEmail(e.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="create-password">Password</Label>
+              <Label htmlFor="create-password">{t('passwordLabel')}</Label>
               <Input
                 id="create-password"
                 type="password"
-                placeholder="••••••••"
+                placeholder={t('passwordPlaceholder')}
                 value={createPassword}
                 onChange={(e) => setCreatePassword(e.target.value)}
               />
@@ -537,16 +540,16 @@ export default function AdminUsersPage() {
                 checked={createIsSuperAdmin}
                 onCheckedChange={(checked) => setCreateIsSuperAdmin(checked === true)}
               />
-              <Label htmlFor="create-superadmin">Super Admin</Label>
+              <Label htmlFor="create-superadmin">{t('superAdminCheckbox')}</Label>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={createLoading}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button onClick={handleCreate} disabled={createLoading}>
               {createLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create
+              {tc('add')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -556,7 +559,7 @@ export default function AdminUsersPage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
+            <DialogTitle>{t('editUserDialog')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {editError && (
@@ -565,7 +568,7 @@ export default function AdminUsersPage() {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="edit-email">Email</Label>
+              <Label htmlFor="edit-email">{t('emailLabel')}</Label>
               <Input
                 id="edit-email"
                 type="email"
@@ -574,11 +577,11 @@ export default function AdminUsersPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-password">New Password</Label>
+              <Label htmlFor="edit-password">{t('newPassword')}</Label>
               <Input
                 id="edit-password"
                 type="password"
-                placeholder="Leave empty to keep current"
+                placeholder={t('leaveEmpty')}
                 value={editPassword}
                 onChange={(e) => setEditPassword(e.target.value)}
               />
@@ -589,16 +592,16 @@ export default function AdminUsersPage() {
                 checked={editIsSuperAdmin}
                 onCheckedChange={(checked) => setEditIsSuperAdmin(checked === true)}
               />
-              <Label htmlFor="edit-superadmin">Super Admin</Label>
+              <Label htmlFor="edit-superadmin">{t('superAdminCheckbox')}</Label>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)} disabled={editLoading}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button onClick={handleEdit} disabled={editLoading}>
               {editLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save
+              {tc('save')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -608,7 +611,7 @@ export default function AdminUsersPage() {
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Assign {assignUser?.email} to Organization</DialogTitle>
+            <DialogTitle>{t('assignOrgDialog')} {assignUser?.email} {t('assignUserToOrg')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {assignError && (
@@ -617,10 +620,10 @@ export default function AdminUsersPage() {
               </div>
             )}
             <div className="space-y-2">
-              <Label>Organization</Label>
+              <Label>{t('organizationLabel')}</Label>
               <Select value={assignOrgId} onValueChange={(v) => v && setAssignOrgId(v)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select organization..." />
+                  <SelectValue placeholder={t('selectOrganization')} />
                 </SelectTrigger>
                 <SelectContent>
                   {orgs.map((org) => (
@@ -630,29 +633,29 @@ export default function AdminUsersPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Role</Label>
+              <Label>{t('roleLabel')}</Label>
               <Select value={assignRole} onValueChange={(v) => v && setAssignRole(v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="organization_owner">Organization Owner</SelectItem>
-                  <SelectItem value="organization_admin">Organization Admin</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
-                  <SelectItem value="operator">Operator</SelectItem>
-                  <SelectItem value="reviewer">Reviewer</SelectItem>
-                  <SelectItem value="analyst">Analyst</SelectItem>
-                  <SelectItem value="read_only">Read Only</SelectItem>
-                  <SelectItem value="service_user">Service User</SelectItem>
+                  <SelectItem value="organization_owner">{t('organizationOwner')}</SelectItem>
+                  <SelectItem value="organization_admin">{t('organizationAdmin')}</SelectItem>
+                  <SelectItem value="manager">{t('manager')}</SelectItem>
+                  <SelectItem value="operator">{t('operator')}</SelectItem>
+                  <SelectItem value="reviewer">{t('reviewer')}</SelectItem>
+                  <SelectItem value="analyst">{t('analyst')}</SelectItem>
+                  <SelectItem value="read_only">{t('readOnly')}</SelectItem>
+                  <SelectItem value="service_user">{t('serviceUser')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignOpen(false)} disabled={assignLoading}>Cancel</Button>
+            <Button variant="outline" onClick={() => setAssignOpen(false)} disabled={assignLoading}>{tc('cancel')}</Button>
             <Button onClick={handleAssignOrg} disabled={assignLoading || !assignOrgId}>
               {assignLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Assign
+              {t('assignOrgDialog')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -662,7 +665,7 @@ export default function AdminUsersPage() {
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete User</DialogTitle>
+            <DialogTitle>{t('deleteUserDialog')}</DialogTitle>
           </DialogHeader>
           <div className="py-2 space-y-3">
             {deleteError && (
@@ -671,18 +674,18 @@ export default function AdminUsersPage() {
               </div>
             )}
             <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete{' '}
-              <span className="font-medium text-foreground">{deleteUser?.email}</span>?
-              This action cannot be undone.
+              {t('deleteConfirm')}{' '}
+              <span className="font-medium text-foreground">{deleteUser?.email}</span>?{' '}
+              {t('actionCannotUndo')}
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleteLoading}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleteLoading}>
               {deleteLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete
+              {tc('delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

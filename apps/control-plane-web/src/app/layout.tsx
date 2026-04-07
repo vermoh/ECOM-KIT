@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { Providers } from "@/components/providers/Providers";
+import { NextIntlClientProvider } from 'next-intl';
+import { getMessages, getLocale } from 'next-intl/server';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,22 +21,27 @@ export const metadata: Metadata = {
   description: "Advanced E-Com Enrichment Platform",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        <Providers>
-          <AuthProvider>
-            {children}
-          </AuthProvider>
-        </Providers>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <Providers>
+            <AuthProvider>
+              {children}
+            </AuthProvider>
+          </Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

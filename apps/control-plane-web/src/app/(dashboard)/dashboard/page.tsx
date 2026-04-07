@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import {
   Card,
   CardContent,
@@ -39,13 +40,15 @@ interface ServiceAccess {
   validUntil: string | null;
 }
 
-function serviceDescription(slug: string): string {
-  if (slug === 'csv-enrichment') return 'AI-powered CSV catalog enrichment pipeline';
-  return 'Service module';
-}
-
 export default function DashboardPage() {
+  const t = useTranslations('dashboard');
+  const tn = useTranslations('nav');
   const { accessToken } = useAuth();
+
+  function serviceDescription(slug: string): string {
+    if (slug === 'csv-enrichment') return t('csvEnrichmentDescription');
+    return slug;
+  }
 
   const [stats, setStats] = useState<DashboardStats>({
     memberCount: null,
@@ -136,37 +139,37 @@ export default function DashboardPage() {
 
   const statCards = [
     {
-      title: 'Members',
+      title: t('members'),
       value: stats.memberCount !== null ? formatNumber(stats.memberCount) : '—',
       icon: Users,
-      sub: 'Active org members',
+      sub: t('activeOrgMembers'),
     },
     {
-      title: 'Projects',
+      title: t('projects'),
       value: stats.projectCount !== null ? formatNumber(stats.projectCount) : '—',
       icon: FileSpreadsheet,
-      sub: 'CSV projects in org',
+      sub: t('csvProjectsInOrg'),
     },
     {
-      title: 'Token Budget',
+      title: t('tokenBudget'),
       value:
         stats.remainingTokens !== null && stats.totalTokens !== null
           ? `${formatNumber(stats.remainingTokens)} / ${formatNumber(stats.totalTokens)}`
           : '—',
       icon: Coins,
-      sub: 'Remaining / total tokens',
+      sub: t('remainingTotalTokens'),
     },
     {
-      title: 'Tokens Used',
+      title: t('tokensUsed'),
       value: usedTokens !== null ? formatNumber(usedTokens) : '—',
       icon: Zap,
-      sub: 'Consumed this period',
+      sub: t('consumedThisPeriod'),
     },
   ];
 
   return (
     <div className="space-y-8">
-      <h1 className="text-3xl font-bold tracking-tight">Dashboard Overview</h1>
+      <h1 className="text-3xl font-bold tracking-tight">{t('overview')}</h1>
 
       {/* Stats cards */}
       {statsLoading ? (
@@ -197,7 +200,7 @@ export default function DashboardPage() {
 
       {/* Services section */}
       <div className="space-y-4">
-        <h2 className="text-xl font-semibold tracking-tight">Your Services</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t('yourServices')}</h2>
 
         {servicesLoading ? (
           <div className="flex items-center justify-center p-10">
@@ -210,12 +213,12 @@ export default function DashboardPage() {
               <Card className="transition-shadow hover:shadow-md cursor-pointer border-primary/20 h-full">
                 <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
                   <div className="space-y-1">
-                    <CardTitle className="text-base">CSV Enrichment</CardTitle>
-                    <CardDescription>AI-powered CSV catalog enrichment pipeline</CardDescription>
+                    <CardTitle className="text-base">{tn('csvEnrichment')}</CardTitle>
+                    <CardDescription>{t('csvEnrichmentDescription')}</CardDescription>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-green-200">
-                      Active
+                      {t('active')}
                     </Badge>
                     <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   </div>
@@ -232,7 +235,7 @@ export default function DashboardPage() {
                       <CardTitle className="text-base">{svc.serviceName}</CardTitle>
                       <CardDescription>{serviceDescription(svc.serviceSlug)}</CardDescription>
                     </div>
-                    <Badge variant="secondary">Coming soon</Badge>
+                    <Badge variant="secondary">{t('comingSoon')}</Badge>
                   </CardHeader>
                 </Card>
               </div>

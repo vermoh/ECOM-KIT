@@ -5,14 +5,16 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/settings', label: 'Settings', icon: Settings },
-];
+import { useTranslations } from 'next-intl';
 
 export function Sidebar() {
+  const t = useTranslations('nav');
   const pathname = usePathname();
+
+  const navItems = [
+    { href: '/dashboard', label: t('dashboard'), icon: LayoutDashboard },
+    { href: '/settings', label: t('settings'), icon: Settings },
+  ];
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r bg-background pt-16">

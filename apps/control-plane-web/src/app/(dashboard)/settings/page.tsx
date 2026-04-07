@@ -15,6 +15,7 @@ import { PermissionGate } from '@/components/auth/PermissionGate';
 import { useAuth } from '@/context/AuthContext';
 import { Coins, History, Loader2, Zap } from 'lucide-react';
 import { formatNumber, formatDateTime } from '@/lib/utils';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -62,6 +63,7 @@ function OrganizationTab() {
   const { accessToken } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
   const [loading, setLoading] = useState(true);
+  const t = useTranslations('settings.organizationTab');
 
   useEffect(() => {
     if (!accessToken) return;
@@ -95,7 +97,7 @@ function OrganizationTab() {
   if (!org) {
     return (
       <p className="text-sm text-muted-foreground py-8 text-center">
-        No organization data found.
+        {t('noOrgFound')}
       </p>
     );
   }
@@ -103,20 +105,20 @@ function OrganizationTab() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Organization Details</CardTitle>
+        <CardTitle>{t('title')}</CardTitle>
         <CardDescription>
-          Read-only view. Contact a platform administrator to make changes.
+          {t('readOnly')}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 text-sm">
           <div className="space-y-1">
-            <dt className="text-muted-foreground font-medium">Name</dt>
+            <dt className="text-muted-foreground font-medium">{t('name')}</dt>
             <dd className="font-semibold">{org.name}</dd>
           </div>
 
           <div className="space-y-1">
-            <dt className="text-muted-foreground font-medium">Slug</dt>
+            <dt className="text-muted-foreground font-medium">{t('slug')}</dt>
             <dd>
               <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-xs">
                 {org.slug}
@@ -125,7 +127,7 @@ function OrganizationTab() {
           </div>
 
           <div className="space-y-1">
-            <dt className="text-muted-foreground font-medium">Plan</dt>
+            <dt className="text-muted-foreground font-medium">{t('plan')}</dt>
             <dd>
               <Badge variant="secondary" className="capitalize">
                 {org.plan}
@@ -134,7 +136,7 @@ function OrganizationTab() {
           </div>
 
           <div className="space-y-1">
-            <dt className="text-muted-foreground font-medium">Status</dt>
+            <dt className="text-muted-foreground font-medium">{t('status')}</dt>
             <dd>
               <Badge
                 className={
@@ -149,17 +151,17 @@ function OrganizationTab() {
           </div>
 
           <div className="space-y-1">
-            <dt className="text-muted-foreground font-medium">Max Users</dt>
+            <dt className="text-muted-foreground font-medium">{t('maxUsers')}</dt>
             <dd className="font-semibold">{org.maxUsers ?? '—'}</dd>
           </div>
 
           <div className="space-y-1">
-            <dt className="text-muted-foreground font-medium">Max Projects</dt>
+            <dt className="text-muted-foreground font-medium">{t('maxProjects')}</dt>
             <dd className="font-semibold">{org.maxProjects ?? '—'}</dd>
           </div>
 
           <div className="space-y-1 sm:col-span-2">
-            <dt className="text-muted-foreground font-medium">Created</dt>
+            <dt className="text-muted-foreground font-medium">{t('created')}</dt>
             <dd className="font-semibold">
               {org.createdAt ? formatDateTime(org.createdAt) : '—'}
             </dd>
@@ -181,6 +183,7 @@ function MembersTab() {
   const [inviteRole, setInviteRole] = useState('read_only');
   const [isInviting, setIsInviting] = useState(false);
   const [inviteError, setInviteError] = useState('');
+  const t = useTranslations('settings.membersTab');
 
   const fetchMembers = useCallback(async () => {
     if (!accessToken) return;
@@ -247,22 +250,22 @@ function MembersTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {members.length} member{members.length !== 1 ? 's' : ''} in your organization.
+          {members.length} {members.length !== 1 ? t('members') : t('memberCount')} {t('inYourOrganization')}
         </p>
         <PermissionGate permission="user:invite">
-          <Button onClick={() => setIsDialogOpen(true)}>Invite User</Button>
+          <Button onClick={() => setIsDialogOpen(true)}>{t('inviteUser')}</Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Invite User</DialogTitle>
+                <DialogTitle>{t('dialogTitle')}</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleInvite} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="invite-email">Email</Label>
+                  <Label htmlFor="invite-email">{t('emailLabel')}</Label>
                   <Input
                     id="invite-email"
                     type="email"
-                    placeholder="user@example.com"
+                    placeholder={t('emailPlaceholder')}
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
                     required
@@ -270,7 +273,7 @@ function MembersTab() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="invite-role">Role</Label>
+                  <Label htmlFor="invite-role">{t('roleLabel')}</Label>
                   <Select
                     value={inviteRole}
                     onValueChange={(v) => v && setInviteRole(v)}
@@ -280,13 +283,13 @@ function MembersTab() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="organization_owner">Organization Owner</SelectItem>
-                      <SelectItem value="organization_admin">Organization Admin</SelectItem>
-                      <SelectItem value="manager">Manager</SelectItem>
-                      <SelectItem value="operator">Operator</SelectItem>
-                      <SelectItem value="reviewer">Reviewer</SelectItem>
-                      <SelectItem value="analyst">Analyst</SelectItem>
-                      <SelectItem value="read_only">Read Only</SelectItem>
+                      <SelectItem value="organization_owner">{t('organizationOwner')}</SelectItem>
+                      <SelectItem value="organization_admin">{t('organizationAdmin')}</SelectItem>
+                      <SelectItem value="manager">{t('manager')}</SelectItem>
+                      <SelectItem value="operator">{t('operator')}</SelectItem>
+                      <SelectItem value="reviewer">{t('reviewer')}</SelectItem>
+                      <SelectItem value="analyst">{t('analyst')}</SelectItem>
+                      <SelectItem value="read_only">{t('readOnly')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -299,7 +302,7 @@ function MembersTab() {
                   className="w-full"
                 >
                   {isInviting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Send Invite
+                  {t('sendInvite')}
                 </Button>
               </form>
             </DialogContent>
@@ -312,16 +315,16 @@ function MembersTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>{t('tableEmail')}</TableHead>
+                <TableHead>{t('tableRole')}</TableHead>
+                <TableHead>{t('tableStatus')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {members.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
-                    No members found.
+                    {t('noMembers')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -358,6 +361,7 @@ function TokenUsageTab() {
   const [budget, setBudget] = useState<TokenBudget | null>(null);
   const [logs, setLogs] = useState<UsageLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const t = useTranslations('settings.tokenUsageTab');
 
   const fetchUsage = useCallback(async () => {
     if (!accessToken) return;
@@ -415,7 +419,7 @@ function TokenUsageTab() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-zinc-50/50 dark:bg-zinc-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium">Remaining Tokens</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('remainingTokens')}</CardTitle>
             <Coins className="h-4 w-4 text-zinc-500" />
           </CardHeader>
           <CardContent>
@@ -423,14 +427,14 @@ function TokenUsageTab() {
               {budget ? formatNumber(budget.remainingTokens) : '—'}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              of {budget ? formatNumber(budget.totalTokens) : '—'} total
+              {t('of')} {budget ? formatNumber(budget.totalTokens) : '—'} {t('total')}
             </p>
           </CardContent>
         </Card>
 
         <Card className="bg-zinc-50/50 dark:bg-zinc-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium">Used Tokens</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('usedTokens')}</CardTitle>
             <Zap className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
@@ -443,7 +447,7 @@ function TokenUsageTab() {
 
         <Card className="bg-zinc-50/50 dark:bg-zinc-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium">Percentage Used</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('percentageUsed')}</CardTitle>
             <div
               className={`text-lg font-bold ${percentageTextColor}`}
             >
@@ -454,10 +458,10 @@ function TokenUsageTab() {
             <Progress value={percentage} className="h-2" />
             <p className="text-xs text-muted-foreground mt-2">
               {percentage >= 90
-                ? 'Critical — contact your admin'
+                ? t('critical')
                 : percentage >= 70
-                ? 'Approaching limit'
-                : 'Usage is healthy'}
+                ? t('approachingLimit')
+                : t('healthy')}
             </p>
           </CardContent>
         </Card>
@@ -466,15 +470,15 @@ function TokenUsageTab() {
       {/* Progress bar card */}
       <Card>
         <CardHeader>
-          <CardTitle>Budget Usage</CardTitle>
+          <CardTitle>{t('budgetUsage')}</CardTitle>
           <CardDescription>
-            Current AI token consumption for your organization.
+            {t('currentAiTokenConsumption')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">
-              {formatNumber(usedTokens)} / {budget ? formatNumber(budget.totalTokens) : '—'} tokens
+              {formatNumber(usedTokens)} / {budget ? formatNumber(budget.totalTokens) : '—'} {t('tokens')}
             </span>
             <span className={`font-semibold ${percentageTextColor}`}>
               {percentage}%
@@ -487,7 +491,7 @@ function TokenUsageTab() {
             />
           </div>
           <p className="text-sm text-muted-foreground">
-            Token limits are managed by platform administrators.
+            {t('limitsManagedByAdmins')}
           </p>
         </CardContent>
       </Card>
@@ -497,23 +501,23 @@ function TokenUsageTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <History className="h-5 w-5 text-zinc-400" />
-            Consumption History
+            {t('consumptionHistory')}
           </CardTitle>
-          <CardDescription>Last 50 AI token operations.</CardDescription>
+          <CardDescription>{t('last50Operations')}</CardDescription>
         </CardHeader>
         <CardContent>
           {logs.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8 italic">
-              No operations recorded yet.
+              {t('noPurpose')}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Purpose</TableHead>
-                  <TableHead>Model</TableHead>
-                  <TableHead>Time</TableHead>
-                  <TableHead className="text-right">Tokens Used</TableHead>
+                  <TableHead>{t('purpose')}</TableHead>
+                  <TableHead>{t('model')}</TableHead>
+                  <TableHead>{t('time')}</TableHead>
+                  <TableHead className="text-right">{t('tokensUsedColumn')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -545,20 +549,22 @@ function TokenUsageTab() {
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const t = useTranslations('settings');
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
         <p className="text-muted-foreground mt-2">
-          Manage your organization, members, and token usage.
+          {t('subtitle')}
         </p>
       </div>
 
       <Tabs defaultValue="organization">
         <TabsList>
-          <TabsTrigger value="organization">Organization</TabsTrigger>
-          <TabsTrigger value="members">Members</TabsTrigger>
-          <TabsTrigger value="token-usage">Token Usage</TabsTrigger>
+          <TabsTrigger value="organization">{t('organization')}</TabsTrigger>
+          <TabsTrigger value="members">{t('members')}</TabsTrigger>
+          <TabsTrigger value="token-usage">{t('tokenUsage')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="organization" className="mt-6">

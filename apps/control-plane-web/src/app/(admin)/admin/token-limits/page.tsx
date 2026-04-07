@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2, Pencil } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -32,6 +33,8 @@ interface OrgUsage {
 
 export default function TokenLimitsPage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.tokenLimits');
+  const tc = useTranslations('common');
 
   const [usageData, setUsageData] = useState<OrgUsage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,17 +132,17 @@ export default function TokenLimitsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Token Limits</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
         <p className="text-muted-foreground mt-2">
-          View and manage AI token budgets across all organizations.
+          {t('subtitle')}
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Organization Token Budgets</CardTitle>
+          <CardTitle>{t('orgTokenBudgets')}</CardTitle>
           <CardDescription>
-            Click "Edit Limit" to update a budget. Changes take effect immediately.
+            {t('changesTakeEffect')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -149,18 +152,18 @@ export default function TokenLimitsPage() {
             </div>
           ) : usageData.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-10 italic">
-              No usage data available.
+              {t('noUsageData')}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Org Name</TableHead>
-                  <TableHead>Plan</TableHead>
-                  <TableHead className="text-right">Total Tokens</TableHead>
-                  <TableHead className="text-right">Remaining</TableHead>
-                  <TableHead className="w-48">% Used</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t('orgName')}</TableHead>
+                  <TableHead>{t('plan')}</TableHead>
+                  <TableHead className="text-right">{t('totalTokens')}</TableHead>
+                  <TableHead className="text-right">{t('remaining')}</TableHead>
+                  <TableHead className="w-48">{t('percentUsed')}</TableHead>
+                  <TableHead className="text-right">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -190,7 +193,7 @@ export default function TokenLimitsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <Button size="sm" variant="outline" onClick={() => openEdit(row)}>
-                          <Pencil className="mr-1 h-3 w-3" /> Edit Limit
+                          <Pencil className="mr-1 h-3 w-3" /> {t('editLimit')}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -206,11 +209,11 @@ export default function TokenLimitsPage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Token Limit — {editTarget?.orgName}</DialogTitle>
+            <DialogTitle>{t('editLimitDialog')} {editTarget?.orgName}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="edit-total-tokens">Total Tokens</Label>
+              <Label htmlFor="edit-total-tokens">{t('totalTokensLabel')}</Label>
               <Input
                 id="edit-total-tokens"
                 type="number"
@@ -219,10 +222,10 @@ export default function TokenLimitsPage() {
                 value={editTotal}
                 onChange={(e) => setEditTotal(e.target.value)}
                 disabled={editLoading}
-                placeholder="10000000"
+                placeholder={t('minimumTokens')}
               />
               <p className="text-xs text-muted-foreground">
-                Current limit: {editTarget?.totalTokens.toLocaleString() ?? '—'}
+                {t('currentLimit')} {editTarget?.totalTokens.toLocaleString() ?? '—'}
               </p>
             </div>
             <div className="flex items-start gap-3 rounded-md border p-3 bg-muted/40">
@@ -234,11 +237,10 @@ export default function TokenLimitsPage() {
               />
               <div>
                 <Label htmlFor="edit-reset" className="cursor-pointer font-medium">
-                  Reset remaining to new limit
+                  {t('resetCheckboxLabel')}
                 </Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  If checked, remaining tokens will be set equal to the new limit.
-                  Otherwise, the existing balance is preserved (capped at the new limit).
+                  {t('resetCheckboxDescription')}
                 </p>
               </div>
             </div>
@@ -246,11 +248,11 @@ export default function TokenLimitsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)} disabled={editLoading}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button onClick={handleSaveLimit} disabled={editLoading || !editTotal}>
               {editLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Limit
+              {t('saveLimit')}
             </Button>
           </DialogFooter>
         </DialogContent>

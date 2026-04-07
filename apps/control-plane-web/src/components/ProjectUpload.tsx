@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslations } from 'next-intl';
 
 interface ProjectUploadProps {
   projectId: string;
@@ -17,6 +18,7 @@ interface ProjectUploadProps {
 
 export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: ProjectUploadProps) {
   const { accessToken } = useAuth();
+  const t = useTranslations('csvWizard.upload');
   const [file, setFile] = useState<File | null>(null);
   const [includeSeo, setIncludeSeo] = useState(false);
   const [catalogContext, setCatalogContext] = useState('');
@@ -153,10 +155,7 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
       {!jobId ? (
         <>
           <p className="text-sm text-muted-foreground mb-3">
-            Upload your product catalog in CSV format. The system will automatically:
-            1. Parse and validate the file structure;
-            2. Analyze product categories using AI;
-            3. Propose enrichment fields for your review.
+            {t('description')}
           </p>
           <Card className={`border-2 border-dashed transition-colors ${isDragActive ? 'border-primary bg-primary/5' : 'border-zinc-200 dark:border-zinc-800'}`}>
             <div {...getRootProps()} className="p-12 cursor-pointer outline-none">
@@ -170,8 +169,8 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
                   </div>
                 ) : (
                   <>
-                    <p className="text-sm font-medium">Drag & drop CSV here, or click to select</p>
-                    <p className="text-xs text-zinc-500 mt-1">Only .csv files up to 50MB</p>
+                    <p className="text-sm font-medium">{t('dragDropCSV')}</p>
+                    <p className="text-xs text-zinc-500 mt-1">{t('csvFilesOnly')}</p>
                   </>
                 )}
               </div>
@@ -182,37 +181,37 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
             <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <div className="space-y-1.5">
                 <label htmlFor="catalogContext" className="text-sm font-medium">
-                  Catalog description <span className="text-zinc-400 font-normal">(optional)</span>
+                  {t('catalogDescription')} <span className="text-zinc-400 font-normal">{t('optional')}</span>
                 </label>
                 <textarea
                   id="catalogContext"
                   rows={3}
                   value={catalogContext}
                   onChange={(e) => setCatalogContext(e.target.value)}
-                  placeholder="Describe your product domain so AI generates more relevant fields and fills them more accurately. E.g. 'Children's toys and educational games, ages 0–12. Key attributes: age group, material safety, toy type, brand.'"
+                  placeholder={t('describeCatalog')}
                   className="w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-background px-3 py-2 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400 resize-none"
                 />
                 <p className="text-xs text-zinc-500">
-                  Describe your products so AI generates more relevant fields. E.g.: &apos;Electronics and gadgets for home office&apos;, &apos;Organic cosmetics for women 25-45&apos;, &apos;Industrial spare parts for CNC machines&apos;.
+                  {t('descriptiveExample')}
                 </p>
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="language" className="text-sm font-medium">
-                  Language <span className="text-zinc-400 font-normal">(optional)</span>
+                  {t('language')} <span className="text-zinc-400 font-normal">{t('optional')}</span>
                 </label>
                 <Select value={selectedLang} onValueChange={(v) => setSelectedLang(v ?? '')}>
                   <SelectTrigger id="language" className="w-full">
-                    <SelectValue placeholder="Auto-detect" />
+                    <SelectValue placeholder={t('autoDetect')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Auto-detect</SelectItem>
+                    <SelectItem value="">{t('autoDetect')}</SelectItem>
                     {languages.map(l => (
                       <SelectItem key={l.code} value={l.code}>{l.nativeName} ({l.code})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-zinc-500">
-                  Select the language of your catalog. Leave as Auto-detect to let AI determine it automatically.
+                  {t('selectLanguage')}
                 </p>
               </div>
               <div className="flex items-center gap-2 p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-800">
@@ -224,7 +223,7 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
                   className="w-4 h-4 rounded border-zinc-300 text-primary focus:ring-primary"
                 />
                 <label htmlFor="includeSeo" className="text-sm font-medium cursor-pointer select-none">
-                  Auto-generate SEO attributes (Title, Description, Keywords)
+                  {t('includeSeo')}
                 </label>
               </div>
             </div>
@@ -256,7 +255,7 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
 
       {file && !jobId && (
         <Button onClick={handleUpload} disabled={uploading} className="w-full">
-          {uploading ? 'Uploading...' : 'Start Enrichment'}
+          {uploading ? t('uploading') : t('startEnrichment')}
         </Button>
       )}
 

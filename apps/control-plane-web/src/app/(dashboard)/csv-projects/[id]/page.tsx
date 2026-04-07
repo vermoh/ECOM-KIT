@@ -7,6 +7,7 @@ import { Check } from 'lucide-react';
 import { ProjectUpload } from '@/components/ProjectUpload';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { ValidationSummary } from '@/components/csv-wizard/ValidationSummary';
 import { SchemaReview } from '@/components/csv-wizard/SchemaReview';
@@ -69,6 +70,7 @@ function getStageIndex(status: UploadJobStatus): number {
 export default function CSVWizardPage() {
   const params = useParams();
   const projectId = params.id as string;
+  const t = useTranslations('csvWizard');
 
   const [status, setStatus] = useState<UploadJobStatus>('PENDING');
   const [uploadJobId, setUploadJobId] = useState<string | null>(null);
@@ -140,8 +142,8 @@ export default function CSVWizardPage() {
       
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">CSV Enrichment Wizard</h1>
-        <p className="text-muted-foreground mt-1 font-mono text-xs text-zinc-400">project: {projectId}</p>
+        <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
+        <p className="text-muted-foreground mt-1 font-mono text-xs text-zinc-400">{t('project')} {projectId}</p>
       </div>
 
       {/* Stepper Wizard Progress */}
@@ -181,7 +183,7 @@ export default function CSVWizardPage() {
       <div className="bg-card border rounded-xl p-6 md:p-8 shadow-sm transition-all">
         {status === 'PENDING' && (
           <div className="space-y-4">
-             <h2 className="text-xl font-semibold mb-6">Upload CSV File</h2>
+             <h2 className="text-xl font-semibold mb-6">{t('upload.title')}</h2>
              <ProjectUpload
                projectId={projectId}
                initialJobId={uploadJobId}

@@ -14,6 +14,7 @@ import { Check, ChevronDown, ChevronRight, Edit2, Globe, Info, Languages, Lightb
 
 import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 interface SchemaReviewProps {
   uploadJobId: string;
@@ -22,6 +23,7 @@ interface SchemaReviewProps {
 
 export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
   const { accessToken } = useAuth();
+  const t = useTranslations('csvWizard.schemaReview');
   const [schema, setSchema] = useState<SchemaTemplate | null>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -260,9 +262,9 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground border rounded-lg bg-zinc-50 dark:bg-zinc-900 border-dashed">
         <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
-        <h3 className="text-lg font-medium text-foreground mb-1">AI Schema Generation in progress</h3>
-        <p className="text-sm">We are analyzing your CSV headers and creating a strict schema template via AI...</p>
-        <p className="text-xs mt-4">Please wait, this usually takes 10-15 seconds.</p>
+        <h3 className="text-lg font-medium text-foreground mb-1">{t('aiSchemaGenerationInProgress')}</h3>
+        <p className="text-sm">{t('analyzingCSVHeaders')}</p>
+        <p className="text-xs mt-4">{t('pleasWait')}</p>
       </div>
     );
   }
@@ -271,8 +273,8 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
     return (
       <div className="text-center p-12 text-muted-foreground border rounded-lg bg-zinc-50 dark:bg-zinc-900 border-dashed">
         <ShieldAlert className="w-10 h-10 mx-auto mb-4 text-red-400" />
-        <p className="font-semibold text-lg text-red-500">Schema generation failed</p>
-        <p className="text-sm mt-2">Please check your AI Provider setting keys or try again.</p>
+        <p className="font-semibold text-lg text-red-500">{t('schemaGenerationFailed')}</p>
+        <p className="text-sm mt-2">{t('checkAiProvider')}</p>
       </div>
     );
   }
@@ -281,34 +283,33 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
     <div className="space-y-6">
       <div>
         <div className="flex items-center gap-3">
-          <h2 className="text-xl font-semibold">Review Target Schema</h2>
+          <h2 className="text-xl font-semibold">{t('title')}</h2>
           <Badge variant="outline" className="bg-amber-50 text-琥珀-700 border-琥珀-200">
-            Version {schema.version}
+            {t('version')} {schema.version}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          AI has analyzed your data and proposed the following extraction schema.
-          Please review and adjust types before confirming.
+          {t('subtitle')}
         </p>
       </div>
 
       <div className="flex gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-sm text-blue-800 dark:text-blue-300">
         <Info className="h-4 w-4 mt-0.5 shrink-0" />
         <div className="space-y-1">
-          <p>AI has proposed enrichment fields based on your catalog. You can:</p>
+          <p>{t('aiProposedEnrichment')}</p>
           <ul className="list-disc list-inside space-y-0.5 text-xs">
-            <li>Toggle fields on/off — only enabled fields will be enriched</li>
-            <li>Delete unwanted fields or add your own custom fields</li>
-            <li>Edit field names, types, and add extraction hints</li>
-            <li>Provide reference examples at the bottom for best results</li>
+            <li>{t('toggleFields')}</li>
+            <li>{t('deleteAddFields')}</li>
+            <li>{t('editFieldNames')}</li>
+            <li>{t('provideReferences')}</li>
           </ul>
-          <p className="text-xs">Once confirmed, enrichment will begin automatically for enabled fields only.</p>
+          <p className="text-xs">{t('enrichmentBeginsAutomatically')}</p>
         </div>
       </div>
 
       <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
         <Globe className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">Language:</span>
+        <span className="text-sm font-medium">{t('language')}</span>
         <Select value={currentLang} onValueChange={(v) => setCurrentLang(v ?? '')}>
           <SelectTrigger className="h-8 w-[180px]">
             <SelectValue placeholder="Auto-detected" />
@@ -321,7 +322,7 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
         </Select>
         <Button variant="outline" size="sm" onClick={handleTranslate} disabled={isTranslating || !currentLang}>
           {isTranslating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Languages className="h-4 w-4 mr-1" />}
-          Translate labels
+          {t('translateLabels')}
         </Button>
       </div>
 
@@ -337,27 +338,27 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[10px] font-medium text-muted-foreground uppercase">Label</label>
+                        <label className="text-[10px] font-medium text-muted-foreground uppercase">{t('label')}</label>
                         <Input
                           value={(field as any).label || field.name}
                           onChange={(e) => updateField(field.id, { label: e.target.value } as any)}
-                          placeholder="Human Readable Label"
+                          placeholder={t('humanReadableLabel')}
                           className="h-8 text-sm"
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[10px] font-medium text-muted-foreground uppercase">Key</label>
+                        <label className="text-[10px] font-medium text-muted-foreground uppercase">{t('key')}</label>
                         <Input
                           value={field.name}
                           onChange={(e) => updateField(field.id, { name: e.target.value })}
-                          placeholder="snake_case_key"
+                          placeholder={t('snakeCaseKey')}
                           className="h-8 text-sm font-mono"
                         />
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="space-y-1">
-                        <label className="text-[10px] font-medium text-muted-foreground uppercase">Type</label>
+                        <label className="text-[10px] font-medium text-muted-foreground uppercase">{t('type')}</label>
                         <Select
                           value={field.type}
                           onValueChange={(val: any) => updateField(field.id, { type: val })}
@@ -366,11 +367,11 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="text">Text</SelectItem>
-                            <SelectItem value="number">Number</SelectItem>
-                            <SelectItem value="boolean">Boolean</SelectItem>
-                            <SelectItem value="enum">Enum</SelectItem>
-                            <SelectItem value="url">URL</SelectItem>
+                            <SelectItem value="text">{t('text')}</SelectItem>
+                            <SelectItem value="number">{t('number')}</SelectItem>
+                            <SelectItem value="boolean">{t('boolean')}</SelectItem>
+                            <SelectItem value="enum">{t('enum')}</SelectItem>
+                            <SelectItem value="url">{t('url')}</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -379,7 +380,7 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                           checked={field.required}
                           onCheckedChange={(checked) => updateField(field.id, { required: checked })}
                         />
-                        <span className="text-xs text-muted-foreground">Required</span>
+                        <span className="text-xs text-muted-foreground">{t('required')}</span>
                       </div>
                       <div className="flex-1" />
                       <Button
@@ -388,7 +389,7 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                         onClick={() => setEditingField(null)}
                         className="mt-3"
                       >
-                        <Check className="h-4 w-4 text-emerald-500 mr-1" /> Done
+                        <Check className="h-4 w-4 text-emerald-500 mr-1" /> {t('done')}
                       </Button>
                     </div>
                     {field.description && (
@@ -396,12 +397,12 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                     )}
                     <div className="space-y-1">
                       <label className="text-[10px] font-medium text-muted-foreground uppercase">
-                        AI Extraction Hint <span className="normal-case font-normal">(optional)</span>
+                        {t('extractionHint')} <span className="normal-case font-normal">{t('extractionHintOptional')}</span>
                       </label>
                       <Textarea
                         value={field.extractionHint || ''}
                         onChange={(e) => updateField(field.id, { extractionHint: e.target.value })}
-                        placeholder="E.g.: Extract from beginning of product name. Always capitalize. Look for patterns like '60ml'..."
+                        placeholder={t('extractionHintExample')}
                         className="text-sm min-h-[60px] resize-y"
                         rows={2}
                       />
@@ -467,7 +468,7 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
       </div>
 
       <Button variant="outline" onClick={addField} className="w-full border-dashed">
-        <Plus className="h-4 w-4 mr-2" /> Add Custom Field
+        <Plus className="h-4 w-4 mr-2" /> {t('addCustomField')}
       </Button>
 
       <div className="border rounded-lg overflow-hidden">
@@ -477,18 +478,17 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
           className="w-full flex items-center gap-2 p-3 text-sm font-medium hover:bg-muted/50 transition-colors text-left"
         >
           {samplesOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          Reference Examples
+          {t('referenceExamples')}
         </button>
         {samplesOpen && (
           <div className="px-3 pb-3 space-y-2">
             <p className="text-xs text-muted-foreground">
-              Provide 1-3 correctly filled product examples so the AI knows exactly what you expect.
-              Each row should have the schema field names as keys.
+              {t('provideCorrectlyFilled')}
             </p>
             <Textarea
               value={goldenSamples}
               onChange={(e) => setGoldenSamples(e.target.value)}
-              placeholder={`[\n  { "brand": "Neutrogena", "volume": "60ml", "category": "Skincare" },\n  { "brand": "CeraVe", "volume": "250ml", "category": "Cleanser" }\n]`}
+              placeholder={t('referenceExamplesPlaceholder')}
               className="font-mono text-xs min-h-[100px] resize-y"
               rows={5}
             />
@@ -499,12 +499,12 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
       <div className="bg-zinc-50 dark:bg-zinc-900 border rounded-lg p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <ShieldAlert className="h-5 w-5 text-amber-500" />
-          <p className="text-sm font-medium">Schema confirmation requires Reviewer role</p>
+          <p className="text-sm font-medium">{t('requiresReviewerRole')}</p>
         </div>
         
         <PermissionGate permission="schema:approve">
           <Button onClick={handleApprove} disabled={isApproving}>
-            {isApproving ? 'Confirming...' : 'Confirm Schema & Start'}
+            {isApproving ? t('confirming') : t('confirmSchemaStart')}
           </Button>
         </PermissionGate>
       </div>

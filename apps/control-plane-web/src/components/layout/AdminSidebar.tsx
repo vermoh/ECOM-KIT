@@ -5,23 +5,25 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, Building2, Users, Server, Shield, Key, Coins, BarChart3, ScrollText, ArrowLeft, DollarSign, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const adminNavItems = [
-  { href: '/admin/dashboard', label: 'Platform Overview', icon: LayoutDashboard },
-  { href: '/admin/organizations', label: 'Organizations', icon: Building2 },
-  { href: '/admin/users', label: 'All Users', icon: Users },
-  { href: '/admin/services', label: 'Service Registry', icon: Server },
-  { href: '/admin/service-access', label: 'Service Access', icon: Shield },
-  { href: '/admin/provider-keys', label: 'Provider Keys', icon: Key },
-  { href: '/admin/token-limits', label: 'Token Limits', icon: Coins },
-  { href: '/admin/usage', label: 'Usage Stats', icon: BarChart3 },
-  { href: '/admin/model-pricing', label: 'Model Pricing', icon: DollarSign },
-  { href: '/admin/audit-log', label: 'Audit Log', icon: ScrollText },
-  { href: '/admin/languages', label: 'Languages', icon: Globe },
-];
+import { useTranslations } from 'next-intl';
 
 export function AdminSidebar() {
   const pathname = usePathname();
+  const t = useTranslations('nav');
+
+  const adminNavItems = [
+    { href: '/admin/dashboard', label: t('platformOverview'), icon: LayoutDashboard },
+    { href: '/admin/organizations', label: t('organizations'), icon: Building2 },
+    { href: '/admin/users', label: t('allUsers'), icon: Users },
+    { href: '/admin/services', label: t('serviceRegistry'), icon: Server },
+    { href: '/admin/service-access', label: t('serviceAccess'), icon: Shield },
+    { href: '/admin/provider-keys', label: t('providerKeys'), icon: Key },
+    { href: '/admin/token-limits', label: t('tokenLimits'), icon: Coins },
+    { href: '/admin/usage', label: t('usageStats'), icon: BarChart3 },
+    { href: '/admin/model-pricing', label: t('modelPricing'), icon: DollarSign },
+    { href: '/admin/audit-log', label: t('auditLog'), icon: ScrollText },
+    { href: '/admin/languages', label: t('languages'), icon: Globe },
+  ];
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r bg-background pt-16">
@@ -51,7 +53,7 @@ export function AdminSidebar() {
             className="flex items-center rounded-lg p-2 text-foreground hover:bg-muted"
           >
             <ArrowLeft className="h-5 w-5 text-muted-foreground" />
-            <span className="ml-3">Back to Org Panel</span>
+            <span className="ml-3">{t('backToOrgPanel')}</span>
           </Link>
         </div>
       </div>

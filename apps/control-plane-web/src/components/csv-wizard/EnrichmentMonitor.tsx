@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Activity, Sparkles, Zap, Loader2 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslations } from 'next-intl';
 
 interface EnrichmentMonitorProps {
   uploadJobId: string;
@@ -27,6 +28,7 @@ const CHAR_POOL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678
 type FieldAnim = { name: string; value: string; state: 'scramble' | 'typing' | 'done' | 'idle' };
 
 function AIWorkingVisualization({ isRunning }: { isRunning: boolean }) {
+  const t = useTranslations('csvWizard.enrichment');
   const [fields, setFields] = useState<FieldAnim[]>([]);
   const [pulse, setPulse] = useState(false);
   const stateRef = useRef({ fieldIdx: 0, charIdx: 0, scrambleCount: 0 });
@@ -134,7 +136,7 @@ function AIWorkingVisualization({ isRunning }: { isRunning: boolean }) {
               <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary animate-ping" />
             </div>
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              AI Enrichment Live
+              {t('aiEnrichmentLive')}
             </span>
           </div>
 
@@ -206,6 +208,7 @@ function AIWorkingVisualization({ isRunning }: { isRunning: boolean }) {
 
 export function EnrichmentMonitor({ uploadJobId, onComplete }: EnrichmentMonitorProps) {
   const { accessToken } = useAuth();
+  const t = useTranslations('csvWizard.enrichment');
   const [run, setRun] = useState<any>(null);
   const [tokensUsed, setTokensUsed] = useState(0);
 
@@ -244,7 +247,7 @@ export function EnrichmentMonitor({ uploadJobId, onComplete }: EnrichmentMonitor
     return (
       <div className="flex flex-col items-center justify-center p-12 text-center">
         <Loader2 className="h-10 w-10 text-primary/40 animate-spin mb-4" />
-        <p className="text-muted-foreground font-medium animate-pulse">Initializing AI enrichment workers...</p>
+        <p className="text-muted-foreground font-medium animate-pulse">{t('initializingWorkers')}</p>
       </div>
     );
   }
@@ -258,10 +261,10 @@ export function EnrichmentMonitor({ uploadJobId, onComplete }: EnrichmentMonitor
       <div>
         <h2 className="text-xl font-semibold flex items-center gap-2">
           {isRunning && <Activity className="h-5 w-5 text-primary animate-pulse" />}
-          Enrichment in Progress
+          {t('title')}
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          AI is processing your catalog against the approved schema.
+          {t('subtitle')}
         </p>
       </div>
 
@@ -270,12 +273,12 @@ export function EnrichmentMonitor({ uploadJobId, onComplete }: EnrichmentMonitor
         <CardContent className="p-6">
           <div className="flex justify-between items-end mb-2">
             <div>
-              <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-1">Overall Progress</p>
+              <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('overallProgress')}</p>
               <p className="text-2xl font-bold">{Math.round(progressPercent)}%</p>
             </div>
             <div className="text-sm font-medium text-right">
               <span className="text-primary">{formatNumber(run.processedItems)}</span>
-              <span className="text-muted-foreground"> / {formatNumber(run.totalItems)} items</span>
+              <span className="text-muted-foreground"> / {formatNumber(run.totalItems)} {t('items')}</span>
             </div>
           </div>
 
@@ -292,7 +295,7 @@ export function EnrichmentMonitor({ uploadJobId, onComplete }: EnrichmentMonitor
 
           <div className="grid grid-cols-3 gap-4 mt-8 pt-6 border-t">
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Items Failed</p>
+              <p className="text-xs text-muted-foreground mb-1">{t('itemsFailed')}</p>
               <p className="text-lg font-semibold text-rose-600 dark:text-rose-400">{run.failedItems || 0}</p>
             </div>
             <div>
@@ -300,7 +303,7 @@ export function EnrichmentMonitor({ uploadJobId, onComplete }: EnrichmentMonitor
               <p className="text-lg font-semibold capitalize">{run.status}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Tokens Used</p>
+              <p className="text-xs text-muted-foreground mb-1">{t('tokensUsed')}</p>
               <p className="text-lg font-semibold">{formatNumber(tokensUsed)}</p>
             </div>
           </div>

@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -44,6 +45,8 @@ const emptyForm = { name: '', slug: '', baseUrl: '', version: '1.0.0' };
 
 export default function AdminServicesPage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.services');
+  const tc = useTranslations('common');
 
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(false);
@@ -125,8 +128,8 @@ export default function AdminServicesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Admin — Services</h1>
-        <Button onClick={openDialog}>Register Service</Button>
+        <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
+        <Button onClick={openDialog}>{t('registerService')}</Button>
       </div>
 
       {error && (
@@ -137,22 +140,22 @@ export default function AdminServicesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Registered Services</CardTitle>
+          <CardTitle>{t('registeredServices')}</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">Loading...</div>
+            <div className="py-12 text-center text-muted-foreground text-sm">{tc('loading')}</div>
           ) : services.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">No services registered yet.</div>
+            <div className="py-12 text-center text-muted-foreground text-sm">{t('noServices')}</div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Slug</TableHead>
-                  <TableHead>Base URL</TableHead>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{t('name')}</TableHead>
+                  <TableHead>{t('slug')}</TableHead>
+                  <TableHead>{t('baseUrl')}</TableHead>
+                  <TableHead>{t('version')}</TableHead>
+                  <TableHead>{t('status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -185,7 +188,7 @@ export default function AdminServicesPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Register Service</DialogTitle>
+            <DialogTitle>{t('registerDialog')}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
@@ -196,40 +199,40 @@ export default function AdminServicesPage() {
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor="svc-name">Name</Label>
+              <Label htmlFor="svc-name">{t('serviceName')}</Label>
               <Input
                 id="svc-name"
-                placeholder="CSV Enrichment"
+                placeholder={t('serviceNameExample')}
                 value={form.name}
                 onChange={(e) => handleFormChange('name', e.target.value)}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="svc-slug">Slug</Label>
+              <Label htmlFor="svc-slug">{t('serviceSlug')}</Label>
               <Input
                 id="svc-slug"
-                placeholder="csv-enrichment"
+                placeholder={t('serviceSlugExample')}
                 value={form.slug}
                 onChange={(e) => handleFormChange('slug', e.target.value)}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="svc-base-url">Base URL</Label>
+              <Label htmlFor="svc-base-url">{t('baseUrlLabel')}</Label>
               <Input
                 id="svc-base-url"
-                placeholder="http://localhost:4001"
+                placeholder={t('baseUrlExample')}
                 value={form.baseUrl}
                 onChange={(e) => handleFormChange('baseUrl', e.target.value)}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="svc-version">Version</Label>
+              <Label htmlFor="svc-version">{t('versionLabel')}</Label>
               <Input
                 id="svc-version"
-                placeholder="1.0.0"
+                placeholder={t('versionDefault')}
                 value={form.version}
                 onChange={(e) => handleFormChange('version', e.target.value)}
               />
@@ -238,10 +241,10 @@ export default function AdminServicesPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button onClick={handleRegister} disabled={submitting}>
-              {submitting ? 'Registering...' : 'Register'}
+              {submitting ? t('registering') : t('register')}
             </Button>
           </DialogFooter>
         </DialogContent>

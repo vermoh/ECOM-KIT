@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -23,6 +24,7 @@ interface Project {
 }
 
 export default function CSVProjectsPage() {
+  const t = useTranslations('csvProjects');
   const router = useRouter();
   const { accessToken } = useAuth();
   const [isCreating, setIsCreating] = useState(false);
@@ -62,7 +64,7 @@ export default function CSVProjectsPage() {
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || 'Failed to create project');
+        throw new Error(err.error || t('createError'));
       }
       const project: Project = await res.json();
       router.push(`/csv-projects/${project.id}`);
@@ -109,12 +111,12 @@ export default function CSVProjectsPage() {
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">CSV Projects</h1>
-          <p className="text-muted-foreground mt-1">Manage your catalog enrichment workflows.</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
+          <p className="text-muted-foreground mt-1">{t('subtitle')}</p>
         </div>
         <Button onClick={handleNewProject} disabled={isCreating} className="gap-2">
           {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          New Project
+          {t('newProject')}
         </Button>
       </div>
 
@@ -124,8 +126,8 @@ export default function CSVProjectsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent Projects</CardTitle>
-          <CardDescription>Track status and resume active workflows.</CardDescription>
+          <CardTitle>{t('recentProjects')}</CardTitle>
+          <CardDescription>{t('trackStatusResume')}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -135,18 +137,18 @@ export default function CSVProjectsPage() {
           ) : projects.length === 0 ? (
             <div className="text-center py-12 border-2 border-dashed rounded-lg">
               <FileSpreadsheet className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium">No projects yet</h3>
-              <p className="text-sm text-muted-foreground mt-1 mb-4">Start by creating a new CSV enrichment project.</p>
-              <Button onClick={handleNewProject} variant="outline">Create your first project</Button>
+              <h3 className="text-lg font-medium">{t('noProjectsYet')}</h3>
+              <p className="text-sm text-muted-foreground mt-1 mb-4">{t('startByCreating')}</p>
+              <Button onClick={handleNewProject} variant="outline">{t('createFirstProject')}</Button>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Project Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead>{t('projectName')}</TableHead>
+                  <TableHead>{t('status')}</TableHead>
+                  <TableHead>{t('created')}</TableHead>
+                  <TableHead className="text-right">{t('action')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -168,16 +170,16 @@ export default function CSVProjectsPage() {
                       <div className="flex items-center justify-end gap-2">
                         {projectToDelete === project.id ? (
                           <>
-                            <Button variant="ghost" size="sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProjectToDelete(null); }} className="text-muted-foreground">Cancel</Button>
-                            <Button variant="default" size="sm" onClick={(e) => handleDelete(e, project.id)} className="bg-red-600 hover:bg-red-700 text-white">Confirm</Button>
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProjectToDelete(null); }} className="text-muted-foreground">{t('cancelDelete')}</Button>
+                            <Button variant="default" size="sm" onClick={(e) => handleDelete(e, project.id)} className="bg-red-600 hover:bg-red-700 text-white">{t('deleteConfirm')}</Button>
                           </>
                         ) : (
                           <>
                             <Link href={`/csv-projects/${project.id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
-                              Open
+                              {t('open')}
                             </Link>
                             <Button variant="ghost" size="sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProjectToDelete(project.id); }} className="text-red-500 hover:text-red-600 hover:bg-red-50">
-                              Delete
+                              {t('deleteConfirm')}
                             </Button>
                           </>
                         )}

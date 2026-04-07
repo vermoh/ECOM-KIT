@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/AuthContext';
 import { setToken } from '@/lib/auth';
+import { useTranslations } from 'next-intl';
 
 export default function LoginPage() {
+  const t = useTranslations('auth.login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const { login } = useAuth();
@@ -52,16 +54,16 @@ export default function LoginPage() {
       <Card className="w-full max-w-md shadow-lg border-muted">
         <form onSubmit={handleLogin}>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold tracking-tight text-center">ECOM KIT Platform</CardTitle>
-            <CardDescription className="text-center">Control Plane Login</CardDescription>
+            <CardTitle className="text-2xl font-bold tracking-tight text-center">{t('title')}</CardTitle>
+            <CardDescription className="text-center">{t('description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t('email')}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="admin@ecomkit.com"
+                placeholder={t('emailPlaceholder')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -69,7 +71,7 @@ export default function LoginPage() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t('password')}</Label>
               </div>
               <Input
                 id="password"
@@ -85,7 +87,7 @@ export default function LoginPage() {
           </CardContent>
           <CardFooter>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? t('signingIn') : t('signIn')}
             </Button>
           </CardFooter>
         </form>

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { Building2, Users, Coins, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -26,6 +27,7 @@ interface UsageData {
 
 export default function AdminDashboardPage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.dashboard');
 
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [usage, setUsage] = useState<UsageData | null>(null);
@@ -85,22 +87,22 @@ export default function AdminDashboardPage() {
 
   const stats = [
     {
-      title: 'Total Organizations',
+      title: t('totalOrganizations'),
       value: totalOrganizations.toLocaleString(),
       icon: Building2,
     },
     {
-      title: 'Total Users',
+      title: t('totalUsers'),
       value: totalUsers.toLocaleString(),
       icon: Users,
     },
     {
-      title: 'Total Tokens Consumed',
+      title: t('totalTokensConsumed'),
       value: totalTokensConsumed.toLocaleString(),
       icon: Coins,
     },
     {
-      title: 'Active Projects',
+      title: t('activeProjects'),
       value: activeProjects.toLocaleString(),
       icon: FileSpreadsheet,
     },
@@ -108,7 +110,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
+      <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
 
       <div className="grid gap-4 md:grid-cols-2">
         {stats.map((stat, i) => {

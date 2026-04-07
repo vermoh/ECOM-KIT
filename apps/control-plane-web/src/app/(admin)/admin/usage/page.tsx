@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2, ArrowUp, ArrowDown, ArrowUpDown, Activity, BarChart3, AlertTriangle, DollarSign } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -26,6 +27,7 @@ type SortDir = 'asc' | 'desc';
 
 export default function UsagePage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.usage');
   const [data, setData] = useState<OrgUsage[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('tokensUsed');
@@ -128,9 +130,9 @@ export default function UsagePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Usage Overview</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
         <p className="text-muted-foreground mt-2">
-          Aggregate AI token consumption across all organizations.
+          {t('subtitle')}
         </p>
       </div>
 
@@ -138,47 +140,47 @@ export default function UsagePage() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="bg-zinc-50/50 dark:bg-zinc-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium">Total Tokens Consumed</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('totalTokensConsumed')}</CardTitle>
             <BarChart3 className="h-4 w-4 text-zinc-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalConsumed.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">across {data.length} organizations</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('across')} {data.length} {t('organizations')}</p>
           </CardContent>
         </Card>
 
         <Card className="bg-zinc-50/50 dark:bg-zinc-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium">Avg Usage Per Org</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('avgUsagePerOrg')}</CardTitle>
             <Activity className="h-4 w-4 text-zinc-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{avgPerOrg.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">tokens per organization</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('tokensPerOrganization')}</p>
           </CardContent>
         </Card>
 
         <Card className="bg-zinc-50/50 dark:bg-zinc-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium">Orgs Near Limit</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('orgsNearLimit')}</CardTitle>
             <AlertTriangle className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
             <div className={`text-2xl font-bold ${nearLimit > 0 ? 'text-amber-500' : ''}`}>
               {nearLimit}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">&lt;20% remaining</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('lessThan20Remaining')}</p>
           </CardContent>
         </Card>
 
         <Card className="bg-zinc-50/50 dark:bg-zinc-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium">Total Cost ($)</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('totalCost')}</CardTitle>
             <DollarSign className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${totalCost.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground mt-1">across all organizations</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('acrossAllOrganizations')}</p>
           </CardContent>
         </Card>
       </div>
@@ -186,7 +188,7 @@ export default function UsagePage() {
       {/* Sortable Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Per-Organization Breakdown</CardTitle>
+          <CardTitle>{t('perOrgBreakdown')}</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -195,20 +197,20 @@ export default function UsagePage() {
             </div>
           ) : sorted.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-10 italic">
-              No usage data available.
+              {t('noUsageData')}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <SortableHead col="orgName">Org Name</SortableHead>
-                  <SortableHead col="plan">Plan</SortableHead>
-                  <SortableHead col="tokensUsed" right>Tokens Used</SortableHead>
-                  <SortableHead col="totalCostUsd" right>Cost ($)</SortableHead>
-                  <SortableHead col="totalTokens" right>Token Limit</SortableHead>
-                  <SortableHead col="remainingTokens" right>Remaining</SortableHead>
-                  <SortableHead col="projectCount" right>Projects</SortableHead>
-                  <SortableHead col="lastActivity">Last Activity</SortableHead>
+                  <SortableHead col="orgName">{t('orgName')}</SortableHead>
+                  <SortableHead col="plan">{t('plan')}</SortableHead>
+                  <SortableHead col="tokensUsed" right>{t('tokensUsed')}</SortableHead>
+                  <SortableHead col="totalCostUsd" right>{t('cost')}</SortableHead>
+                  <SortableHead col="totalTokens" right>{t('tokenLimit')}</SortableHead>
+                  <SortableHead col="remainingTokens" right>{t('remaining')}</SortableHead>
+                  <SortableHead col="projectCount" right>{t('projects')}</SortableHead>
+                  <SortableHead col="lastActivity">{t('lastActivity')}</SortableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

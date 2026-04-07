@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -42,6 +43,8 @@ interface ProviderKey {
 
 export default function ProviderKeysPage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.providerKeys');
+  const tc = useTranslations('common');
 
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string>('');
@@ -185,29 +188,29 @@ export default function ProviderKeysPage() {
     val ? new Date(val).toLocaleDateString() + ' ' + new Date(val).toLocaleTimeString() : '—';
 
   const providerLabel: Record<string, string> = {
-    openrouter: 'OpenRouter',
-    openai: 'OpenAI',
-    anthropic: 'Anthropic',
+    openrouter: t('openrouter'),
+    openai: t('openai'),
+    anthropic: t('anthropic'),
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Provider Keys</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
         <p className="text-muted-foreground mt-2">
-          Manage AI provider API keys per organization.
+          {t('subtitle')}
         </p>
       </div>
 
       {/* Org Selector */}
       <Card>
         <CardHeader>
-          <CardTitle>Select Organization</CardTitle>
+          <CardTitle>{t('selectOrganization')}</CardTitle>
         </CardHeader>
         <CardContent>
           {loadingOrgs ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading organizations...
+              <Loader2 className="h-4 w-4 animate-spin" /> {t('loadingOrganizations')}
             </div>
           ) : (
             <Select value={selectedOrgId} onValueChange={(v) => v && setSelectedOrgId(v)}>
@@ -231,11 +234,11 @@ export default function ProviderKeysPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle>API Keys</CardTitle>
-              <CardDescription>Encrypted at rest. Full keys are never returned.</CardDescription>
+              <CardTitle>{t('apiKeys')}</CardTitle>
+              <CardDescription>{t('encryptedAtRest')}</CardDescription>
             </div>
             <Button onClick={() => { setAddOpen(true); setAddError(''); }}>
-              <Plus className="mr-2 h-4 w-4" /> Add Key
+              <Plus className="mr-2 h-4 w-4" /> {t('addKey')}
             </Button>
           </CardHeader>
           <CardContent>
@@ -245,16 +248,16 @@ export default function ProviderKeysPage() {
               </div>
             ) : keys.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-10 italic">
-                No provider keys configured for this organization.
+                {t('noKeys')}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Provider</TableHead>
-                    <TableHead>Key Hint</TableHead>
-                    <TableHead>Last Rotated</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>{t('provider')}</TableHead>
+                    <TableHead>{t('keyHint')}</TableHead>
+                    <TableHead>{t('lastRotated')}</TableHead>
+                    <TableHead className="text-right">{t('actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -279,7 +282,7 @@ export default function ProviderKeysPage() {
                               setRotateOpen(true);
                             }}
                           >
-                            <RotateCcw className="mr-1 h-3 w-3" /> Rotate
+                            <RotateCcw className="mr-1 h-3 w-3" /> {t('rotate')}
                           </Button>
                           <Button
                             size="sm"
@@ -289,7 +292,7 @@ export default function ProviderKeysPage() {
                               setDeleteOpen(true);
                             }}
                           >
-                            <Trash2 className="mr-1 h-3 w-3" /> Delete
+                            <Trash2 className="mr-1 h-3 w-3" /> {t('delete')}
                           </Button>
                         </div>
                       </TableCell>
@@ -306,27 +309,27 @@ export default function ProviderKeysPage() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Provider Key</DialogTitle>
+            <DialogTitle>{t('addKeyDialog')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Provider</Label>
+              <Label>{t('provider')}</Label>
               <Select value={addProvider} onValueChange={(v) => v && setAddProvider(v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="openrouter">OpenRouter</SelectItem>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="anthropic">Anthropic</SelectItem>
+                  <SelectItem value="openrouter">{t('openrouter')}</SelectItem>
+                  <SelectItem value="openai">{t('openai')}</SelectItem>
+                  <SelectItem value="anthropic">{t('anthropic')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>API Key</Label>
+              <Label>{t('apiKeyLabel')}</Label>
               <Input
                 type="password"
-                placeholder="sk-..."
+                placeholder={t('apiKeyPlaceholder')}
                 value={addValue}
                 onChange={(e) => setAddValue(e.target.value)}
                 disabled={addLoading}
@@ -336,11 +339,11 @@ export default function ProviderKeysPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)} disabled={addLoading}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button onClick={handleAddKey} disabled={addLoading || !addValue.trim()}>
               {addLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Key
+              {t('saveKey')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -351,18 +354,18 @@ export default function ProviderKeysPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Rotate Key — {rotateTarget ? (providerLabel[rotateTarget.provider] ?? rotateTarget.provider) : ''}
+              {t('rotateDialog')} {rotateTarget ? (providerLabel[rotateTarget.provider] ?? rotateTarget.provider) : ''}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">
-              Enter a new API key. The existing key will remain active for a 24-hour grace period.
+              {t('gracePeriod')}
             </p>
             <div className="space-y-2">
-              <Label>New API Key</Label>
+              <Label>{t('newApiKey')}</Label>
               <Input
                 type="password"
-                placeholder="sk-..."
+                placeholder={t('apiKeyPlaceholder')}
                 value={rotateValue}
                 onChange={(e) => setRotateValue(e.target.value)}
                 disabled={rotateLoading}
@@ -372,11 +375,11 @@ export default function ProviderKeysPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRotateOpen(false)} disabled={rotateLoading}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button onClick={handleRotate} disabled={rotateLoading || !rotateValue.trim()}>
               {rotateLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Rotate Key
+              {t('rotateKey')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -386,24 +389,24 @@ export default function ProviderKeysPage() {
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Provider Key</DialogTitle>
+            <DialogTitle>{t('deleteConfirmDialog')}</DialogTitle>
           </DialogHeader>
           <div className="py-2">
             <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete the{' '}
+              {t('deleteConfirm')}{' '}
               <span className="font-semibold">
                 {deleteTarget ? (providerLabel[deleteTarget.provider] ?? deleteTarget.provider) : ''}
               </span>{' '}
-              key? This action cannot be undone and will immediately break any services using it.
+              {t('deleteConfirmImmediate')}
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleteLoading}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleteLoading}>
               {deleteLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete
+              {tc('delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

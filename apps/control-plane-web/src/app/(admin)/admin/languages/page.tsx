@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/context/AuthContext';
 import { Globe, Plus, Trash2, Download, Upload, Edit2, Check, X, Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -34,6 +35,7 @@ const defaultAddForm: AddForm = { code: '', name: '', nativeName: '' };
 
 export default function AdminLanguagesPage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.languages');
 
   const [languages, setLanguages] = useState<Language[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,11 +86,11 @@ export default function AdminLanguagesPage() {
     const name = addForm.name.trim();
     const nativeName = addForm.nativeName.trim();
     if (!code || !name || !nativeName) {
-      setAddError('All fields are required.');
+      setAddError(t('allFieldsRequired'));
       return;
     }
     if (code.length !== 2) {
-      setAddError('Code must be exactly 2 characters.');
+      setAddError(t('codeMustBe2'));
       return;
     }
     setIsAdding(true);
@@ -106,7 +108,7 @@ export default function AdminLanguagesPage() {
         setAddError(err.error ?? err.message ?? `Error ${res.status}`);
       }
     } catch {
-      setAddError('Network error. Please try again.');
+      setAddError(t('networkError'));
     } finally {
       setIsAdding(false);
     }
@@ -228,9 +230,9 @@ export default function AdminLanguagesPage() {
         <div className="flex items-center gap-3">
           <Globe className="h-8 w-8 text-muted-foreground" />
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Languages</h1>
+            <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Manage platform languages for AI generation
+              {t('subtitle')}
             </p>
           </div>
         </div>
@@ -244,7 +246,7 @@ export default function AdminLanguagesPage() {
             {isExporting
               ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               : <Download className="mr-2 h-4 w-4" />}
-            Export JSON
+            {t('exportJSON')}
           </Button>
           <Button
             variant="outline"
@@ -255,7 +257,7 @@ export default function AdminLanguagesPage() {
             {isImporting
               ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               : <Upload className="mr-2 h-4 w-4" />}
-            Import JSON
+            {t('importJSON')}
           </Button>
           <input
             ref={importInputRef}
@@ -269,35 +271,35 @@ export default function AdminLanguagesPage() {
 
       {/* Add Language Form */}
       <div className="rounded-lg border bg-card p-4">
-        <h2 className="text-sm font-semibold mb-3">Add Language</h2>
+        <h2 className="text-sm font-semibold mb-3">{t('addLanguage')}</h2>
         <form onSubmit={handleAdd} className="flex items-end gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Code</label>
+            <label className="text-xs text-muted-foreground">{t('code')}</label>
             <Input
               value={addForm.code}
               onChange={(e) => setAddForm((f) => ({ ...f, code: e.target.value }))}
-              placeholder="fr"
+              placeholder={t('codePlaceholder')}
               maxLength={2}
               className="w-20"
               disabled={isAdding}
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Name</label>
+            <label className="text-xs text-muted-foreground">{t('nameLabel')}</label>
             <Input
               value={addForm.name}
               onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="French"
+              placeholder={t('namePlaceholder')}
               className="w-40"
               disabled={isAdding}
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Native Name</label>
+            <label className="text-xs text-muted-foreground">{t('nativeNameLabel')}</label>
             <Input
               value={addForm.nativeName}
               onChange={(e) => setAddForm((f) => ({ ...f, nativeName: e.target.value }))}
-              placeholder="Français"
+              placeholder={t('nativeNamePlaceholder')}
               className="w-40"
               disabled={isAdding}
             />
@@ -306,7 +308,7 @@ export default function AdminLanguagesPage() {
             {isAdding
               ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               : <Plus className="mr-2 h-4 w-4" />}
-            Add
+            {t('addLanguage')}
           </Button>
         </form>
         {addError && (
@@ -317,7 +319,7 @@ export default function AdminLanguagesPage() {
       {/* Languages Table */}
       <div className="rounded-lg border bg-card">
         <div className="px-4 py-3 border-b">
-          <h2 className="text-sm font-semibold">All Languages</h2>
+          <h2 className="text-sm font-semibold">{t('allLanguages')}</h2>
         </div>
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -325,17 +327,17 @@ export default function AdminLanguagesPage() {
           </div>
         ) : languages.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-10">
-            No languages found. Add one above.
+            {t('noLanguages')}
           </p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/40">
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-20">Code</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Native Name</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-24">Active</th>
-                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-32">Actions</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-20">{t('code')}</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t('nameLabel')}</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t('nativeNameLabel')}</th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-24">{t('activeStatus')}</th>
+                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-32">{t('edit')}</th>
               </tr>
             </thead>
             <tbody>
@@ -379,7 +381,7 @@ export default function AdminLanguagesPage() {
                               className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700"
                               onClick={() => handleSaveEdit(lang.id)}
                               disabled={isSavingEdit}
-                              title="Save"
+                              title={t('save')}
                             >
                               {isSavingEdit
                                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -417,7 +419,7 @@ export default function AdminLanguagesPage() {
                         <td className="px-4 py-2.5">
                           {confirmDeleteId === lang.id ? (
                             <div className="flex items-center justify-end gap-1">
-                              <span className="text-xs text-muted-foreground mr-1">Sure?</span>
+                              <span className="text-xs text-muted-foreground mr-1">{t('deleteConfirm')}</span>
                               <Button
                                 variant="destructive"
                                 size="sm"
@@ -427,7 +429,7 @@ export default function AdminLanguagesPage() {
                               >
                                 {deletingId === lang.id
                                   ? <Loader2 className="h-3 w-3 animate-spin" />
-                                  : 'Yes'}
+                                  : t('yes')}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -435,7 +437,7 @@ export default function AdminLanguagesPage() {
                                 className="h-7 px-2 text-xs"
                                 onClick={() => setConfirmDeleteId(null)}
                               >
-                                No
+                                {t('no')}
                               </Button>
                             </div>
                           ) : (
@@ -445,7 +447,7 @@ export default function AdminLanguagesPage() {
                                 size="sm"
                                 className="h-7 w-7 p-0"
                                 onClick={() => startEdit(lang)}
-                                title="Edit"
+                                title={t('edit')}
                               >
                                 <Edit2 className="h-3.5 w-3.5" />
                               </Button>
@@ -454,7 +456,7 @@ export default function AdminLanguagesPage() {
                                 size="sm"
                                 className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                                 onClick={() => setConfirmDeleteId(lang.id)}
-                                title="Delete"
+                                title={t('delete')}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>

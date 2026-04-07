@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -46,6 +47,8 @@ interface Service {
 
 export default function AdminServiceAccessPage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.serviceAccess');
+  const tc = useTranslations('common');
 
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -102,7 +105,7 @@ export default function AdminServiceAccessPage() {
   const handleGrant = async () => {
     if (!accessToken) return;
     if (!selectedOrgId || !selectedServiceId) {
-      setFormError('Please select both an organization and a service.');
+      setFormError(t('pleaseSelectBoth'));
       return;
     }
     setSubmitting(true);
@@ -123,7 +126,7 @@ export default function AdminServiceAccessPage() {
 
       const orgName = orgs.find((o) => o.id === selectedOrgId)?.name ?? selectedOrgId;
       const svcName = services.find((s) => s.id === selectedServiceId)?.name ?? selectedServiceId;
-      setSuccessMessage(`Access to "${svcName}" granted to "${orgName}" successfully.`);
+      setSuccessMessage(`${t('accessGrantedSuccess')} "${svcName}" granted to "${orgName}" successfully.`);
       setDialogOpen(false);
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : 'Failed to grant access');
@@ -136,12 +139,12 @@ export default function AdminServiceAccessPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Admin — Service Access</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Grant organizations access to registered platform services.
+            {t('subtitle')}
           </p>
         </div>
-        <Button onClick={openDialog}>Grant Access</Button>
+        <Button onClick={openDialog}>{t('grantAccess')}</Button>
       </div>
 
       {loadError && (
@@ -159,25 +162,24 @@ export default function AdminServiceAccessPage() {
       {/* Organizations overview */}
       <Card>
         <CardHeader>
-          <CardTitle>Organizations</CardTitle>
+          <CardTitle>{t('organizationsOverview')}</CardTitle>
           <CardDescription>
-            To view which services an organization currently has access to, open the organization detail page.
-            Use the "Grant Access" button above to grant a new service to an organization.
+            {t('viewServiceAccess')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {orgsLoading ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">Loading...</div>
+            <div className="py-12 text-center text-muted-foreground text-sm">{tc('loading')}</div>
           ) : orgs.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">No organizations found.</div>
+            <div className="py-12 text-center text-muted-foreground text-sm">{t('noOrganizations')}</div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Organization</TableHead>
-                  <TableHead>Plan</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t('organization')}</TableHead>
+                  <TableHead>{t('plan')}</TableHead>
+                  <TableHead>{t('status')}</TableHead>
+                  <TableHead className="text-right">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -219,7 +221,7 @@ export default function AdminServiceAccessPage() {
                           setDialogOpen(true);
                         }}
                       >
-                        Grant Service
+                        {t('grantService')}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -234,7 +236,7 @@ export default function AdminServiceAccessPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Grant Service Access</DialogTitle>
+            <DialogTitle>{t('grantAccessDialog')}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
@@ -245,10 +247,10 @@ export default function AdminServiceAccessPage() {
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor="grant-org">Organization</Label>
+              <Label htmlFor="grant-org">{t('organization')}</Label>
               <Select value={selectedOrgId} onValueChange={(v) => v && setSelectedOrgId(v)}>
                 <SelectTrigger id="grant-org">
-                  <SelectValue placeholder="Select organization..." />
+                  <SelectValue placeholder={t('selectOrganization')} />
                 </SelectTrigger>
                 <SelectContent>
                   {orgs.map((org) => (
@@ -264,7 +266,7 @@ export default function AdminServiceAccessPage() {
               <Label htmlFor="grant-service">Service</Label>
               <Select value={selectedServiceId} onValueChange={(v) => v && setSelectedServiceId(v)}>
                 <SelectTrigger id="grant-service">
-                  <SelectValue placeholder="Select service..." />
+                  <SelectValue placeholder={t('selectService')} />
                 </SelectTrigger>
                 <SelectContent>
                   {services.map((svc) => (
@@ -279,10 +281,10 @@ export default function AdminServiceAccessPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button onClick={handleGrant} disabled={submitting}>
-              {submitting ? 'Granting...' : 'Grant Access'}
+              {submitting ? t('granting') : t('grantAccessButton')}
             </Button>
           </DialogFooter>
         </DialogContent>

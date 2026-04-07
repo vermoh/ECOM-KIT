@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const PAGE_LIMIT = 50;
@@ -37,6 +38,8 @@ interface AuditLogEntry {
 
 export default function AdminAuditLogPage() {
   const { accessToken } = useAuth();
+  const t = useTranslations('admin.auditLog');
+  const tc = useTranslations('common');
 
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string>('all');
@@ -113,32 +116,32 @@ export default function AdminAuditLogPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Admin Audit Log</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
         <p className="text-muted-foreground mt-2">
-          Immutable record of all actions across organizations.
+          {t('subtitle')}
         </p>
       </div>
 
       {/* Filters */}
       <Card>
         <CardHeader>
-          <CardTitle>Filters</CardTitle>
+          <CardTitle>{t('filters')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-4 items-end">
             <div className="space-y-1.5 min-w-56">
-              <Label>Organization</Label>
+              <Label>{t('organization')}</Label>
               {loadingOrgs ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                  <Loader2 className="h-4 w-4 animate-spin" /> {tc('loading')}
                 </div>
               ) : (
                 <Select value={selectedOrgId} onValueChange={handleOrgChange}>
                   <SelectTrigger>
-                    <SelectValue placeholder="All organizations" />
+                    <SelectValue placeholder={t('allOrganizations')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Organizations</SelectItem>
+                    <SelectItem value="all">{t('allOrganizations')}</SelectItem>
                     {orgs.map((org) => (
                       <SelectItem key={org.id} value={org.id}>
                         {org.name}
@@ -149,9 +152,9 @@ export default function AdminAuditLogPage() {
               )}
             </div>
             <div className="space-y-1.5 min-w-64">
-              <Label>Action Filter</Label>
+              <Label>{t('actionFilter')}</Label>
               <Input
-                placeholder="e.g. user.login, schema.approved"
+                placeholder={t('actionFilterPlaceholder')}
                 value={actionFilter}
                 onChange={handleActionChange}
               />
@@ -163,8 +166,8 @@ export default function AdminAuditLogPage() {
       {/* Log Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Audit Entries</CardTitle>
-          <CardDescription>Logs are retained indefinitely and cannot be modified.</CardDescription>
+          <CardTitle>{t('auditEntries')}</CardTitle>
+          <CardDescription>{t('immutableRecord')}</CardDescription>
         </CardHeader>
         <CardContent>
           {loadingLogs ? (
@@ -173,19 +176,19 @@ export default function AdminAuditLogPage() {
             </div>
           ) : logs.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-10 italic">
-              No audit log entries found for the selected filters.
+              {t('noEntries')}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="whitespace-nowrap">Timestamp</TableHead>
-                  <TableHead>Org Name</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>Resource Type</TableHead>
-                  <TableHead>Resource ID</TableHead>
-                  <TableHead>IP Address</TableHead>
+                  <TableHead className="whitespace-nowrap">{t('timestamp')}</TableHead>
+                  <TableHead>{t('orgName')}</TableHead>
+                  <TableHead>{t('action')}</TableHead>
+                  <TableHead>{t('actor')}</TableHead>
+                  <TableHead>{t('resourceType')}</TableHead>
+                  <TableHead>{t('resourceId')}</TableHead>
+                  <TableHead>{t('ipAddress')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -216,7 +219,7 @@ export default function AdminAuditLogPage() {
           {!loadingLogs && (logs.length > 0 || page > 1) && (
             <div className="flex items-center justify-between pt-4 border-t mt-4">
               <p className="text-sm text-muted-foreground">
-                Page {page} &middot; {logs.length} entries
+                {t('pageOf')} {page} &middot; {logs.length} {t('entries')}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -225,7 +228,7 @@ export default function AdminAuditLogPage() {
                   disabled={page <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                 >
-                  <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                  <ChevronLeft className="h-4 w-4 mr-1" /> {t('previous')}
                 </Button>
                 <Button
                   variant="outline"
@@ -233,7 +236,7 @@ export default function AdminAuditLogPage() {
                   disabled={!hasMore}
                   onClick={() => setPage((p) => p + 1)}
                 >
-                  Next <ChevronRight className="h-4 w-4 ml-1" />
+                  {t('next')} <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
               </div>
             </div>

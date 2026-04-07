@@ -8,6 +8,7 @@ import { PermissionGate } from '@/components/auth/PermissionGate';
 import { Download, Search, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 import { UploadJobStatus } from '@/types/csv';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslations } from 'next-intl';
 
 const CSV_API = process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001';
 
@@ -22,6 +23,7 @@ interface ExportPanelProps {
 
 export function ExportPanel({ projectId, uploadJobId, status, onExport, onRunSeo, isExporting }: ExportPanelProps) {
   const { accessToken } = useAuth();
+  const t = useTranslations('csvWizard.export');
   const [seoRunning, setSeoRunning] = useState(false);
   const [seoDone, setSeoDone] = useState(false);
   const [exportJobId, setExportJobId] = useState<string | null>(null);
@@ -174,11 +176,10 @@ export function ExportPanel({ projectId, uploadJobId, status, onExport, onRunSeo
       <div>
         <h2 className="text-xl font-semibold flex items-center gap-2">
           <CheckCircle2 className="h-6 w-6 text-emerald-500" />
-          Enrichment Complete
+          {t('enrichmentComplete')}
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Your catalog data has been successfully processed and all collisions resolved.
-          Ready to generate the final export.
+          {t('catalogReady')}
         </p>
       </div>
 
@@ -190,10 +191,10 @@ export function ExportPanel({ projectId, uploadJobId, status, onExport, onRunSeo
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Search className="h-5 w-5 text-blue-500" />
-              SEO Auto-Generation
+              {t('seoAutoGeneration')}
             </CardTitle>
             <CardDescription>
-              Optional: Generate localized Titles and Descriptions to boost search discoverability.
+              {t('seoOptional')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -201,15 +202,15 @@ export function ExportPanel({ projectId, uploadJobId, status, onExport, onRunSeo
               <div className="bg-emerald-50 dark:bg-emerald-950/30 p-4 rounded-lg flex items-center gap-3">
                 <CheckCircle2 className="h-5 w-5 text-emerald-600" />
                 <div>
-                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">SEO generated</p>
-                  <p className="text-xs text-emerald-600/80 dark:text-emerald-400">Added SEO metadata columns to output.</p>
+                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">{t('seoGenerated')}</p>
+                  <p className="text-xs text-emerald-600/80 dark:text-emerald-400">{t('addedSeoMetadata')}</p>
                 </div>
               </div>
             ) : (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Switch id="seo-toggle" disabled={seoRunning} />
-                  <label htmlFor="seo-toggle" className="text-sm font-medium">Enable Russian/English SEO</label>
+                  <label htmlFor="seo-toggle" className="text-sm font-medium">{t('enableRussianEnglishSeo')}</label>
                 </div>
                 
                 <PermissionGate permission="seo:start">
@@ -220,7 +221,7 @@ export function ExportPanel({ projectId, uploadJobId, status, onExport, onRunSeo
                     className="gap-2 shrink-0"
                   >
                     {seoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {seoRunning ? 'Generating...' : 'Run SEO Task'}
+                    {seoRunning ? t('generating') : t('runSeoTask')}
                   </Button>
                 </PermissionGate>
               </div>
@@ -233,28 +234,28 @@ export function ExportPanel({ projectId, uploadJobId, status, onExport, onRunSeo
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Download className="h-5 w-5 text-foreground" />
-              Final Output
+              {t('finalOutput')}
             </CardTitle>
             <CardDescription>
-              Generate and download the compiled enriched catalog spreadsheet in standard CSV format.
+              {t('generateCompile')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             {isDone ? (
                <div className="space-y-4">
                  <div className="bg-primary/5 p-4 rounded-lg flex items-center justify-between border">
-                   <span className="text-sm font-mono truncate mr-4 pr-4 border-r">enriched_export.csv</span>
-                   <span className="text-xs font-semibold text-primary whitespace-nowrap">File ready</span>
+                   <span className="text-sm font-mono truncate mr-4 pr-4 border-r">{t('enrichedExportFilename')}</span>
+                   <span className="text-xs font-semibold text-primary whitespace-nowrap">{t('fileReady')}</span>
                  </div>
                  <Button onClick={handleDownload} disabled={isDownloading} className="w-full gap-2" size="lg">
                    {isDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                   {isDownloading ? 'Preparing...' : 'Download CSV'}
+                   {isDownloading ? t('preparing') : t('downloadCSV')}
                  </Button>
                </div>
             ) : (
                 <div className="flex flex-col gap-4">
                    <div className="text-sm text-muted-foreground">
-                      This will lock the job and compile the final file on the processing cluster.
+                      {t('lockJobCompile')}
                    </div>
                    <PermissionGate permission="export:create">
                       <Button 
@@ -264,9 +265,9 @@ export function ExportPanel({ projectId, uploadJobId, status, onExport, onRunSeo
                         size="lg"
                       >
                         {isGenerating ? (
-                          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Compiling Data...</>
+                          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('compilingData')}</>
                         ) : (
-                          'Lock & Generate Export'
+                          t('lockGenerateExport')
                         )}
                       </Button>
                    </PermissionGate>
