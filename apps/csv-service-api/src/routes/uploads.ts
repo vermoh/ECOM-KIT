@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { db, uploadJobs, projects, enrichmentRuns, eq, and, withTenant } from '@ecom-kit/shared-db';
 import { hasPermission } from '@ecom-kit/shared-auth';
-import { s3Client, BUCKET_NAME } from '../lib/s3';
+import { s3Client, s3PublicClient, BUCKET_NAME } from '../lib/s3';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
@@ -60,14 +60,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       ContentType: 'text/csv',
     });
 
-    let presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-
-    // Replace internal S3 endpoint with public one for browser access
-    const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT;
-    const internalEndpoint = process.env.S3_ENDPOINT || 'http://minio:9000';
-    if (publicEndpoint && presignedUrl.startsWith(internalEndpoint)) {
-      presignedUrl = presignedUrl.replace(internalEndpoint, publicEndpoint);
-    }
+    const presignedUrl = await getSignedUrl(s3PublicClient, command, { expiresIn: 3600 });
 
     return {
       uploadJobId: job.id,
