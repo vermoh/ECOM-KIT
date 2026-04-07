@@ -422,7 +422,10 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
     });
 
     if (!run || !run.template) throw new Error('Enrichment run or template not found');
-    const templateFields = run.template.fields;
+    // Only enrich fields that the user enabled (isRequired = true)
+    const allTemplateFields = run.template.fields;
+    const templateFields = allTemplateFields.filter((f: any) => f.isRequired);
+    console.log(`[Enrichment] ${templateFields.length}/${allTemplateFields.length} fields enabled for enrichment`);
 
     // Concurrency guard — abort if another run for this job is already active
     const concurrentRun = await db.query.enrichmentRuns.findFirst({

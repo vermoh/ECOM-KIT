@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { Textarea } from '@/components/ui/textarea';
-import { Check, ChevronDown, ChevronRight, Edit2, Info, Lightbulb, ShieldAlert } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Edit2, Info, Lightbulb, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
@@ -93,6 +93,32 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
       ...prev,
       fields: prev.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
     }) : null);
+  };
+
+  const removeField = (fieldId: string) => {
+    setSchema(prev => {
+      if (!prev || prev.fields.length <= 1) return prev;
+      return { ...prev, fields: prev.fields.filter(f => f.id !== fieldId) };
+    });
+    if (editingField === fieldId) setEditingField(null);
+  };
+
+  const addField = () => {
+    const newId = `custom-${Date.now()}`;
+    setSchema(prev => prev ? ({
+      ...prev,
+      fields: [...prev.fields, {
+        id: newId,
+        name: '',
+        label: '',
+        type: 'text' as any,
+        required: true,
+        allowedValues: [],
+        description: '',
+        extractionHint: ''
+      }]
+    }) : null);
+    setEditingField(newId);
   };
 
   const handleApprove = async () => {
@@ -194,11 +220,12 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
         <div className="space-y-1">
           <p>AI has proposed enrichment fields based on your catalog. You can:</p>
           <ul className="list-disc list-inside space-y-0.5 text-xs">
-            <li>Edit field names, types, and required flags</li>
-            <li>Add extraction hints to guide AI (e.g., &quot;Extract brand from first word of product name&quot;)</li>
+            <li>Toggle fields on/off — only enabled fields will be enriched</li>
+            <li>Delete unwanted fields or add your own custom fields</li>
+            <li>Edit field names, types, and add extraction hints</li>
             <li>Provide reference examples at the bottom for best results</li>
           </ul>
-          <p className="text-xs">Once confirmed, enrichment will begin automatically.</p>
+          <p className="text-xs">Once confirmed, enrichment will begin automatically for enabled fields only.</p>
         </div>
       </div>
 
@@ -287,7 +314,12 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                 ) : (
                   /* ── View mode ── */
                   <div className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
+                    <Switch
+                      checked={field.required}
+                      onCheckedChange={(checked) => updateField(field.id, { required: checked })}
+                      className="shrink-0"
+                    />
+                    <div className={`flex-1 min-w-0 ${!field.required ? 'opacity-50' : ''}`}>
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">{(field as any).label || field.name}</span>
                         <span className="text-[10px] font-mono text-muted-foreground">{field.name}</span>
@@ -303,7 +335,6 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                       )}
                     </div>
                     <Badge variant="secondary" className="font-normal capitalize shrink-0">{field.type}</Badge>
-                    {field.required && <Badge variant="outline" className="text-[10px] shrink-0">Required</Badge>}
                     {field.type === 'enum' && field.allowedValues.length > 0 && (
                       <div className="flex flex-wrap gap-1 shrink-0 max-w-[200px]">
                         {field.allowedValues.slice(0, 3).map(v => (
@@ -322,6 +353,15 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                     >
                       <Edit2 className="h-4 w-4" />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeField(field.id)}
+                      disabled={schema.fields.length <= 1}
+                      className="shrink-0 text-red-400 hover:text-red-600"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 )}
               </CardContent>
@@ -329,6 +369,10 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
           );
         })}
       </div>
+
+      <Button variant="outline" onClick={addField} className="w-full border-dashed">
+        <Plus className="h-4 w-4 mr-2" /> Add Custom Field
+      </Button>
 
       <div className="border rounded-lg overflow-hidden">
         <button
