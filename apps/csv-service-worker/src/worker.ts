@@ -9,6 +9,20 @@ import { stringify } from 'csv-stringify/sync';
 import { Readable } from 'stream';
 import { analyseProductCatalog, generateSchemaSuggestion, enrichItem, generateFewShotExamples, generateSeoAttributes, postProcessEnrichedData, detectRowCategory, buildCategoryHint, CatalogAnalysis, analyseFieldConsistency, verifyEnrichedItem } from './lib/ai';
 import { checkBudget, consumeBudget } from './lib/budget';
+
+/** Strip UTF-8 BOM and leading empty lines from an S3 body stream */
+async function cleanCsvStream(body: Readable): Promise<Readable> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of body) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  let content = Buffer.concat(chunks).toString('utf-8');
+  // Remove BOM
+  if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
+  // Remove leading empty lines
+  content = content.replace(/^\s*\n/, '');
+  return Readable.from(content);
+}
 import { loadKnowledge, saveConfirmedKnowledge, formatKnowledgeForPrompt } from './lib/knowledge';
 import * as client from 'prom-client';
 import http from 'node:http';
@@ -167,7 +181,8 @@ export async function processParsingJob(job: Job<CSVJobData>) {
     if (!response.Body) throw new Error('Empty S3 body');
 
     let rowCount = 0;
-    const parser = (response.Body as Readable).pipe(
+    const cleanStream = await cleanCsvStream(response.Body as Readable);
+    const parser = cleanStream.pipe(
       parse({ columns: true, skip_empty_lines: true, bom: true })
     );
 
@@ -221,7 +236,8 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
     // 1. Get sample data from S3 — read up to 40 rows to capture product variety
     const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
     const response = await s3Client.send(command);
-    const parser = (response.Body as Readable).pipe(parse({ columns: true, to_line: 40, bom: true }));
+    const cleanStream2 = await cleanCsvStream(response.Body as Readable);
+    const parser = cleanStream2.pipe(parse({ columns: true, to_line: 40, bom: true }));
 
     const allSampleRows: any[] = [];
     for await (const row of parser) {
@@ -463,7 +479,8 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
       // Read a small sample from S3 to generate few-shot examples
       const sampleCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
       const sampleRes = await s3Client.send(sampleCmd);
-      const sampleParser = (sampleRes.Body as Readable).pipe(
+      const cleanSample = await cleanCsvStream(sampleRes.Body as Readable);
+      const sampleParser = cleanSample.pipe(
         parse({ columns: true, to: 8, skip_empty_lines: true, cast: false, bom: true })
       );
       const sampleRows: any[] = [];
@@ -518,7 +535,8 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
     const response = await s3Client.send(command);
     if (!response.Body) throw new Error('Empty S3 body');
 
-    const parser = (response.Body as Readable).pipe(
+    const cleanStream3 = await cleanCsvStream(response.Body as Readable);
+    const parser = cleanStream3.pipe(
       parse({ columns: true, skip_empty_lines: true, cast: false, bom: true })
     );
 
@@ -1167,7 +1185,8 @@ export async function processExportJob(job: Job<ExportJobData>) {
     if (!originalS3Resp.Body) throw new Error('Original S3 file not found');
 
     let originalHeaders: string[] = [];
-    const headerParser = (originalS3Resp.Body as Readable).pipe(
+    const cleanHeader = await cleanCsvStream(originalS3Resp.Body as Readable);
+    const headerParser = cleanHeader.pipe(
       parse({ columns: true, to: 1, bom: true })
     );
     for await (const firstRow of headerParser) {
@@ -1196,7 +1215,8 @@ export async function processExportJob(job: Job<ExportJobData>) {
 
     const csvRows: any[] = [];
     let rowIdx = 0;
-    const originalParser = (csvS3Resp.Body as Readable).pipe(
+    const cleanExport = await cleanCsvStream(csvS3Resp.Body as Readable);
+    const originalParser = cleanExport.pipe(
       parse({ columns: true, skip_empty_lines: true, cast: false, bom: true })
     );
 
