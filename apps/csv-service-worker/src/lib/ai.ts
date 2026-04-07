@@ -38,11 +38,52 @@ export interface CatalogAnalysis {
  * and their key commercial + technical attributes.
  * Uses gpt-4o for higher quality (single call per upload).
  */
+export async function detectLanguage(sampleTexts: string[], apiKey: string): Promise<string> {
+  if (isMockApiKey(apiKey)) return 'en';
+  if (sampleTexts.length === 0) return 'en';
+
+  const textsBlock = sampleTexts.slice(0, 10).join('\n');
+  const prompt = `What language are these product names written in? Return ONLY the ISO 639-1 two-letter language code (e.g. 'en', 'ru', 'ro', 'fr'). Product names:\n${textsBlock}`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        temperature: 0,
+        messages: [
+          { role: 'system', content: 'You are a language detection expert. Respond with only the ISO 639-1 code, nothing else.' },
+          { role: 'user', content: prompt }
+        ],
+      })
+    });
+
+    const data = await response.json() as any;
+    if (!data.choices || data.choices.length === 0) {
+      console.warn('[AI] detectLanguage: no choices returned, defaulting to en');
+      return 'en';
+    }
+
+    const raw = (data.choices[0].message.content || '').trim().toLowerCase();
+    const code = raw.slice(0, 2);
+    console.log(`[AI] detectLanguage: detected "${code}" from ${sampleTexts.length} sample texts`);
+    return code || 'en';
+  } catch (err) {
+    console.warn('[AI] detectLanguage failed, defaulting to en:', err);
+    return 'en';
+  }
+}
+
 export async function analyseProductCatalog(
   sampleRows: any[],
   apiKey: string,
   catalogContext?: string,
-  allProductNames?: string[]
+  allProductNames?: string[],
+  lang?: string
 ): Promise<CatalogAnalysis> {
   if (isMockApiKey(apiKey) || sampleRows.length === 0) {
     return { categories: [], totalTokensUsed: 0 };
@@ -65,10 +106,14 @@ export async function analyseProductCatalog(
     ? `\nALL PRODUCT NAMES IN CATALOG (${allProductNames.length} products — use this to understand the FULL scope and niche of the store):\n${allProductNames.map((n, i) => `${i + 1}. ${sanitizePromptInput(n, 200)}`).join('\n')}\n`
     : '';
 
+  const langInstruction = lang
+    ? `\nIMPORTANT: Generate your response (category names, attribute names) in the language: ${lang}.\n`
+    : '';
+
   const prompt = `You are a senior product catalog analyst. Study the sample products below and identify ALL distinct product categories or niches present in this catalog.
 
 IMPORTANT: Pay special attention to product names — they often encode critical information like dimensions, materials, compatibility with other products, and product variants. Also identify the merchant's business niche/domain (e.g. "outdoor cooking equipment store", "electronics retailer", "vape shop").
-${contextLine}${namesBlock}
+${contextLine}${namesBlock}${langInstruction}
 DETAILED SAMPLE PRODUCTS:
 ${rowsBlock}
 
@@ -147,7 +192,8 @@ export async function generateSchemaSuggestion(
   uniqueCategories: string[],
   apiKey: string,
   catalogContext?: string,
-  catalogAnalysis?: CatalogAnalysis
+  catalogAnalysis?: CatalogAnalysis,
+  lang?: string
 ): Promise<{ fields: Partial<any>[]; tokensUsed: number }> {
   // Explicit dev/test mode — only use mock when key is intentionally fake
   if (isMockApiKey(apiKey)) {
@@ -193,8 +239,12 @@ export async function generateSchemaSuggestion(
     ? `\nCATALOG DOMAIN CONTEXT (auto-detected):\nThis is a ${catalogAnalysis.merchantNiche}.\n`
     : '');
 
+  const langRequirement = lang
+    ? `\nLANGUAGE REQUIREMENT: Generate ALL field labels, descriptions, and allowed_values in ${lang}. Field names (snake_case keys) should remain in English, but labels and descriptions must be in ${lang}.\n`
+    : '';
+
   const prompt = `You are a senior E-commerce catalog specialist. Propose enrichment fields based on a thorough catalog analysis.
-${effectiveContextBlock}${analysisBlock}
+${langRequirement}${effectiveContextBlock}${analysisBlock}
 EXISTING CSV COLUMNS (already present — do NOT suggest these):
 ${existingColumns}
 ${categoriesBlock}
@@ -546,7 +596,8 @@ export async function enrichItem(
   fewShotExamples?: string,
   categoryHint?: string,
   liveExamples?: any[],
-  knowledgeBlock?: string
+  knowledgeBlock?: string,
+  lang?: string
 ): Promise<{ enrichedData: any; confidence: number; tokensUsed: number; uncertainFields: Record<string, string[]> }> {
   const fieldNames = schemaFields.map(f => f.name);
   const schemaDescription = schemaFields.map(f => {
@@ -598,6 +649,10 @@ export async function enrichItem(
     ? sanitizePromptInput(knowledgeBlock, 8000)
     : '';
 
+  const langInstruction = lang
+    ? `LANGUAGE: Generate ALL enrichment values in ${lang}. All text, enum values, and descriptions must be in ${lang}.`
+    : 'For text fields: return a concise string. Match the language of the input data.';
+
   const prompt = `You are an E-commerce product data enrichment engine. Your job is to fill in product attributes by extracting or intelligently inferring values from the raw product data.
 ${contextBlock}${categoryBlock}
 The product data may be in any language (including Russian). Read and understand EVERY field — product name, description, and category all contain important clues.
@@ -621,7 +676,7 @@ RULES:
 3. For boolean fields: return true or false (not "yes"/"no").
 4. For number fields: return a number only (integer or float), no units in the value.
 5. For enum fields: return exactly one of the allowed values listed.
-6. For text fields: return a concise string. Match the language of the input data.
+6. ${langInstruction}
 7. NEVER return null or omit a field. If genuinely unknown, return the most plausible default for this product type and niche.
 
 STEP 3 — For any field where you are LESS THAN 80% certain of the value, add an entry to "uncertain_fields" array with 2-3 plausible alternatives. This helps the human reviewer pick the best option. If you are confident in all values, return an empty array [].`;

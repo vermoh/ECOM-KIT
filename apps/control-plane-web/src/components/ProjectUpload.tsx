@@ -6,6 +6,7 @@ import { Upload, FileText, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
 
 interface ProjectUploadProps {
@@ -24,6 +25,8 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(initialJobId || null);
   const [status, setStatus] = useState<string | null>(null);
+  const [languages, setLanguages] = useState<{id: string, code: string, name: string, nativeName: string}[]>([]);
+  const [selectedLang, setSelectedLang] = useState<string>('');
 
   const pollStatus = useCallback(async (id: string) => {
     const interval = setInterval(async () => {
@@ -65,6 +68,16 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
     }
   }, [initialJobId, pollStatus]);
 
+  useEffect(() => {
+    if (!accessToken) return;
+    fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/languages`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setLanguages(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [accessToken]);
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setFile(acceptedFiles[0]);
     setError(null);
@@ -91,7 +104,7 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`
         },
-        body: JSON.stringify({ filename: file.name, includeSeo, catalogContext: catalogContext.trim() || undefined })
+        body: JSON.stringify({ filename: file.name, includeSeo, catalogContext: catalogContext.trim() || undefined, lang: selectedLang || undefined })
       });
 
       if (!res.ok) throw new Error('Failed to get upload URL');
@@ -181,6 +194,25 @@ export function ProjectUpload({ projectId, initialJobId, onUploadComplete }: Pro
                 />
                 <p className="text-xs text-zinc-500">
                   Describe your products so AI generates more relevant fields. E.g.: &apos;Electronics and gadgets for home office&apos;, &apos;Organic cosmetics for women 25-45&apos;, &apos;Industrial spare parts for CNC machines&apos;.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="language" className="text-sm font-medium">
+                  Language <span className="text-zinc-400 font-normal">(optional)</span>
+                </label>
+                <Select value={selectedLang} onValueChange={setSelectedLang}>
+                  <SelectTrigger id="language" className="w-full">
+                    <SelectValue placeholder="Auto-detect" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Auto-detect</SelectItem>
+                    {languages.map(l => (
+                      <SelectItem key={l.code} value={l.code}>{l.nativeName} ({l.code})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-zinc-500">
+                  Select the language of your catalog. Leave as Auto-detect to let AI determine it automatically.
                 </p>
               </div>
               <div className="flex items-center gap-2 p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-800">

@@ -7,7 +7,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { parse } from 'csv-parse';
 import { stringify } from 'csv-stringify/sync';
 import { Readable } from 'stream';
-import { analyseProductCatalog, generateSchemaSuggestion, enrichItem, generateFewShotExamples, generateSeoAttributes, postProcessEnrichedData, detectRowCategory, buildCategoryHint, CatalogAnalysis, analyseFieldConsistency, verifyEnrichedItem } from './lib/ai';
+import { analyseProductCatalog, generateSchemaSuggestion, enrichItem, generateFewShotExamples, generateSeoAttributes, postProcessEnrichedData, detectRowCategory, buildCategoryHint, CatalogAnalysis, analyseFieldConsistency, verifyEnrichedItem, detectLanguage } from './lib/ai';
 import { checkBudget, consumeBudget } from './lib/budget';
 
 /** Strip UTF-8 BOM and leading empty lines from an S3 body stream */
@@ -181,18 +181,52 @@ export async function processParsingJob(job: Job<CSVJobData>) {
     if (!response.Body) throw new Error('Empty S3 body');
 
     let rowCount = 0;
+    const sampleProductNames: string[] = [];
     const cleanStream = await cleanCsvStream(response.Body as Readable);
     const parser = cleanStream.pipe(
       parse({ columns: true, skip_empty_lines: true, bom: true })
     );
 
-    for await (const _ of parser) {
+    let parsedHeaders: string[] = [];
+    for await (const row of parser) {
       rowCount++;
+      if (rowCount === 1) {
+        parsedHeaders = Object.keys(row);
+      }
+      // Collect up to 10 product names for language detection
+      if (sampleProductNames.length < 10) {
+        const titleKey = parsedHeaders.find(h => /title|name|наим|назв|product/i.test(h));
+        if (titleKey) {
+          const name = String(row[titleKey] || '').trim();
+          if (name) sampleProductNames.push(name);
+        }
+      }
+    }
+
+    // Detect language if not already set
+    const uploadJobRecord = await db.query.uploadJobs.findFirst({
+      where: and(eq(uploadJobs.id, uploadJobId), eq(uploadJobs.orgId, orgId))
+    });
+
+    let detectedLang = uploadJobRecord?.lang || null;
+    if (!detectedLang && sampleProductNames.length > 0) {
+      const apiKey = process.env.OPENROUTER_API_KEY || '';
+      if (job.data.accessGrantToken) {
+        try {
+          const securedKey = await getProviderKey('openrouter', job.data.accessGrantToken);
+          detectedLang = await detectLanguage(sampleProductNames, securedKey);
+        } catch {
+          detectedLang = await detectLanguage(sampleProductNames, apiKey);
+        }
+      } else {
+        detectedLang = await detectLanguage(sampleProductNames, apiKey);
+      }
+      console.log(`[Parsing] Detected language: ${detectedLang}`);
     }
 
     await withTenant(orgId, async (tx) => {
       await tx.update(uploadJobs)
-        .set({ status: 'parsed', rowCount, updatedAt: new Date() })
+        .set({ status: 'parsed', rowCount, lang: detectedLang ?? undefined, updatedAt: new Date() })
         .where(eq(uploadJobs.id, uploadJobId));
     });
 
@@ -300,10 +334,11 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
       where: and(eq(uploadJobs.id, uploadJobId), eq(uploadJobs.orgId, orgId))
     });
     const catalogContext = uploadJobForContext?.catalogContext || undefined;
+    const lang = uploadJobForContext?.lang || undefined;
 
     // Stage A: Analyse product catalog to identify categories and key attributes (gpt-4o)
     console.log(`[Schema] Stage A: Analysing catalog categories (${allProductNames.length} product names, ${sampleRows.length} detail rows)...`);
-    const catalogAnalysis = await analyseProductCatalog(sampleRows, apiKey, catalogContext, allProductNames);
+    const catalogAnalysis = await analyseProductCatalog(sampleRows, apiKey, catalogContext, allProductNames, lang);
     if (catalogAnalysis.totalTokensUsed > 0) {
       await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed: catalogAnalysis.totalTokensUsed, model: 'gpt-4o', purpose: 'catalog_analysis' });
     }
@@ -312,7 +347,7 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
     // Stage B: Generate enrichment fields based on analysis (gpt-4o)
     console.log(`[Schema] Stage B: Generating enrichment fields...`);
     const { fields: suggestedFields, tokensUsed: schemaTokens } = await generateSchemaSuggestion(
-      headers, sampleRows, uniqueCategories, apiKey, catalogContext, catalogAnalysis
+      headers, sampleRows, uniqueCategories, apiKey, catalogContext, catalogAnalysis, lang
     );
 
     await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed: schemaTokens || 10, model: 'gpt-4o', purpose: 'schema_generation' });
@@ -476,6 +511,7 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
 
     // 2.6 Catalog context + category analysis + few-shot examples (generated once, reused for all rows)
     const catalogContext = uploadJob.catalogContext || undefined;
+    const lang = uploadJob.lang || undefined;
 
     // Load category analysis from schema template (saved during Stage A)
     let knownCategories: CatalogAnalysis['categories'] = [];
@@ -615,7 +651,7 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
           }
 
           const { enrichedData: rawEnriched, confidence, tokensUsed, uncertainFields } = await enrichItem(
-            row, templateFields, apiKey, catalogContext, fewShotExamples, categoryHint, liveExamples, knowledgeBlock
+            row, templateFields, apiKey, catalogContext, fewShotExamples, categoryHint, liveExamples, knowledgeBlock, lang
           );
 
           totalTokens += tokensUsed;

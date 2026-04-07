@@ -234,7 +234,7 @@ export async function schemaRoutes(fastify: FastifyInstance) {
           eq(reviewTasks.taskType, 'schema_review'),
           eq(reviewTasks.status, 'pending')
         ));
-      
+
       // Audit Log — required for human checkpoint per csv_pipeline.md
       await tx.insert(auditLogs).values({
         orgId: session.orgId,
@@ -248,5 +248,98 @@ export async function schemaRoutes(fastify: FastifyInstance) {
     });
 
     return { success: true };
+  });
+
+  // Translate schema field labels via AI
+  fastify.post('/uploads/:id/schema/translate', async (request, reply) => {
+    const session = request.userSession!;
+    const { id } = request.params as { id: string };
+    const { targetLang } = request.body as { targetLang: string };
+
+    if (!hasPermission(session, 'schema:approve')) {
+      return reply.status(403).send({ error: 'PERMISSION_DENIED' });
+    }
+
+    if (!targetLang || typeof targetLang !== 'string') {
+      return reply.status(400).send({ error: 'INVALID_INPUT', message: 'targetLang is required and must be a string' });
+    }
+
+    // Get the schema for this upload
+    const template = await db.query.schemaTemplates.findFirst({
+      where: and(
+        eq(schemaTemplates.jobId, id),
+        eq(schemaTemplates.orgId, session.orgId)
+      ),
+      with: {
+        fields: true
+      }
+    });
+
+    if (!template) {
+      return reply.status(404).send({ error: 'SCHEMA_NOT_FOUND' });
+    }
+
+    if (!template.fields || template.fields.length === 0) {
+      return reply.status(400).send({ error: 'NO_FIELDS', message: 'Schema has no fields to translate' });
+    }
+
+    // Prepare fields for translation
+    const fieldsToTranslate = template.fields.map(f => ({
+      name: f.name,
+      label: f.label,
+      description: f.description || ''
+    }));
+
+    try {
+      const apiKey = process.env.OPENROUTER_API_KEY;
+      if (!apiKey) {
+        console.error('[Schema Translate] Missing OPENROUTER_API_KEY');
+        return reply.status(500).send({ error: 'CONFIG_ERROR', message: 'Translation service not configured' });
+      }
+
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'openai/gpt-4o-mini',
+          temperature: 0.2,
+          messages: [
+            { role: 'system', content: 'You are a professional translator. Translate the given field labels and descriptions accurately. Respond with valid JSON only.' },
+            { role: 'user', content: `Translate the following schema field labels and descriptions to ${targetLang}. Keep the "name" (snake_case key) unchanged. Return a JSON array:\n${JSON.stringify(fieldsToTranslate)}` }
+          ],
+          response_format: { type: 'json_object' }
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('[Schema Translate] OpenRouter error:', response.status, error);
+        return reply.status(500).send({ error: 'TRANSLATION_FAILED', message: 'AI translation service error' });
+      }
+
+      const data = await response.json() as any;
+      const translatedContent = data.choices?.[0]?.message?.content;
+
+      if (!translatedContent) {
+        console.error('[Schema Translate] No content in response');
+        return reply.status(500).send({ error: 'TRANSLATION_FAILED', message: 'Invalid response from AI service' });
+      }
+
+      const parsedTranslations = JSON.parse(translatedContent);
+
+      if (!Array.isArray(parsedTranslations)) {
+        console.error('[Schema Translate] Expected array response, got:', typeof parsedTranslations);
+        return reply.status(500).send({ error: 'TRANSLATION_FAILED', message: 'Invalid response format from AI service' });
+      }
+
+      // Return translated fields without saving
+      return { fields: parsedTranslations };
+    } catch (err: any) {
+      console.error('[Schema Translate] Error:', err);
+      return reply.status(500).send({ error: err.message || 'Internal error translating schema' });
+    }
   });
 }

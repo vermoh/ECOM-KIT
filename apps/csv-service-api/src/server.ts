@@ -56,6 +56,7 @@ fastify.addHook('onRequest', async (request, reply) => {
   }
 });
 
+import { db, languages, eq } from '@ecom-kit/shared-db';
 import { projectRoutes } from './routes/projects';
 import { uploadRoutes } from './routes/uploads';
 import { schemaRoutes } from './routes/schema';
@@ -73,6 +74,14 @@ fastify.register(enrichmentRoutes);
 fastify.register(collisionsRoutes);
 fastify.register(exportRoutes);
 fastify.register(itemsRoutes); // Gap 4: enriched items listing
+
+fastify.get('/languages', async (request, reply) => {
+  const langs = await db.query.languages.findMany({
+    where: eq(languages.isActive, true),
+    orderBy: (l, { asc }) => [asc(l.code)],
+  });
+  return langs;
+});
 
 fastify.get('/health', async (request, reply) => {
   return { status: 'ok', service: 'csv-service-api' };

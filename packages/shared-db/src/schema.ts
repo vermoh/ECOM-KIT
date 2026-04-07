@@ -150,6 +150,7 @@ export const uploadJobs = pgTable('upload_jobs', {
   rowCount: integer('row_count'),
   includeSeo: boolean('include_seo').default(false).notNull(),
   catalogContext: text('catalog_context'),
+  lang: text('lang'),
   errorDetails: text('error_details'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -485,3 +486,12 @@ export const tokenUsageLogsRelations = relations(tokenUsageLogs, ({ one }) => ({
     references: [services.id],
   }),
 }));
+
+export const languages = pgTable('languages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  code: text('code').notNull().unique(),
+  name: text('name').notNull(),
+  nativeName: text('native_name').notNull(),
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+});

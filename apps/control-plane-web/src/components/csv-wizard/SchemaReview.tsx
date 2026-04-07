@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { Textarea } from '@/components/ui/textarea';
-import { Check, ChevronDown, ChevronRight, Edit2, Info, Lightbulb, Plus, ShieldAlert, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Edit2, Globe, Info, Languages, Lightbulb, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
@@ -29,6 +29,9 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [goldenSamples, setGoldenSamples] = useState('');
   const [samplesOpen, setSamplesOpen] = useState(false);
+  const [languages, setLanguages] = useState<{id: string, code: string, name: string, nativeName: string}[]>([]);
+  const [currentLang, setCurrentLang] = useState<string>('');
+  const [isTranslating, setIsTranslating] = useState(false);
 
   React.useEffect(() => {
     let timeoutId: NodeJS.Timeout;
@@ -87,6 +90,80 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [uploadJobId, accessToken]);
+
+  // Fetch languages list
+  React.useEffect(() => {
+    if (!accessToken) return;
+    fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/languages`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setLanguages(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [accessToken]);
+
+  // Fetch upload job to get detected language
+  React.useEffect(() => {
+    if (!uploadJobId || !accessToken) return;
+    fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/uploads/${uploadJobId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.lang) setCurrentLang(data.lang);
+      })
+      .catch(() => {});
+  }, [uploadJobId, accessToken]);
+
+  const handleTranslate = async () => {
+    if (!currentLang || !accessToken) return;
+    setIsTranslating(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/uploads/${uploadJobId}/schema/translate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ targetLang: currentLang })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.fields && Array.isArray(data.fields)) {
+          setSchema(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              fields: prev.fields.map(f => {
+                const translated = data.fields.find((tf: any) => tf.name === f.name);
+                if (translated) {
+                  return {
+                    ...f,
+                    label: translated.label ?? f.label,
+                    description: translated.description ?? f.description
+                  };
+                }
+                return f;
+              })
+            };
+          });
+        }
+        // PATCH the upload job's lang
+        await fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/uploads/${uploadJobId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({ lang: currentLang })
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.error('Translation failed:', err);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
 
   const updateField = (fieldId: string, updates: Partial<SchemaField>) => {
     setSchema(prev => prev ? ({
@@ -227,6 +304,25 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
           </ul>
           <p className="text-xs">Once confirmed, enrichment will begin automatically for enabled fields only.</p>
         </div>
+      </div>
+
+      <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
+        <Globe className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Language:</span>
+        <Select value={currentLang} onValueChange={setCurrentLang}>
+          <SelectTrigger className="h-8 w-[180px]">
+            <SelectValue placeholder="Auto-detected" />
+          </SelectTrigger>
+          <SelectContent>
+            {languages.map(l => (
+              <SelectItem key={l.code} value={l.code}>{l.nativeName} ({l.code})</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="outline" size="sm" onClick={handleTranslate} disabled={isTranslating || !currentLang}>
+          {isTranslating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Languages className="h-4 w-4 mr-1" />}
+          Translate labels
+        </Button>
       </div>
 
       <div className="space-y-2">
