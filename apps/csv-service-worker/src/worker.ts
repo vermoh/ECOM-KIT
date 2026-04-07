@@ -233,17 +233,30 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
         .where(eq(uploadJobs.id, uploadJobId));
     });
 
-    // 1. Get sample data from S3 — read up to 40 rows to capture product variety
+    // 1. Get sample data from S3 — read ALL rows to extract product names, sample up to 40 for detail
     const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
     const response = await s3Client.send(command);
     const cleanStream2 = await cleanCsvStream(response.Body as Readable);
-    const parser = cleanStream2.pipe(parse({ columns: true, to_line: 40, bom: true }));
+    const parser = cleanStream2.pipe(parse({ columns: true, bom: true, skip_empty_lines: true }));
 
-    const allSampleRows: any[] = [];
+    const allRows: any[] = [];
     for await (const row of parser) {
-      allSampleRows.push(row);
+      allRows.push(row);
     }
-    const headers = Object.keys(allSampleRows[0] || {});
+    const headers = Object.keys(allRows[0] || {});
+
+    // Extract ALL product names (up to 200) for Stage A — gives AI full catalog visibility
+    const titleKey = headers.find(h => /title|name|наим|назв|product/i.test(h));
+    const allProductNames: string[] = [];
+    if (titleKey) {
+      for (const row of allRows) {
+        const name = String(row[titleKey] || '').trim();
+        if (name && allProductNames.length < 200) allProductNames.push(name);
+      }
+    }
+
+    // Use first 40 rows for detailed samples
+    const allSampleRows = allRows.slice(0, 40);
 
     // Deduplicate by category to maximise variety in the AI prompt (up to 3 rows per category)
     const categoryKey = headers.find(h => /categor|катег|type|тип/i.test(h));
@@ -258,8 +271,8 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
       }
     }
     // Always include the last row too (catches tail-end categories)
-    if (allSampleRows.length > 0 && !sampleRows.includes(allSampleRows[allSampleRows.length - 1])) {
-      sampleRows.push(allSampleRows[allSampleRows.length - 1]);
+    if (allRows.length > 0 && !sampleRows.includes(allRows[allRows.length - 1])) {
+      sampleRows.push(allRows[allRows.length - 1]);
     }
 
     const uniqueCategories = [...seenCategories.keys()].filter(Boolean);
@@ -289,20 +302,20 @@ export async function processSchemaJob(job: Job<CSVJobData>) {
     const catalogContext = uploadJobForContext?.catalogContext || undefined;
 
     // Stage A: Analyse product catalog to identify categories and key attributes (gpt-4o)
-    console.log(`[Schema] Stage A: Analysing catalog categories...`);
-    const catalogAnalysis = await analyseProductCatalog(sampleRows, apiKey, catalogContext);
+    console.log(`[Schema] Stage A: Analysing catalog categories (${allProductNames.length} product names, ${sampleRows.length} detail rows)...`);
+    const catalogAnalysis = await analyseProductCatalog(sampleRows, apiKey, catalogContext, allProductNames);
     if (catalogAnalysis.totalTokensUsed > 0) {
       await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed: catalogAnalysis.totalTokensUsed, model: 'gpt-4o', purpose: 'catalog_analysis' });
     }
     console.log(`[Schema] Stage A complete: ${catalogAnalysis.categories.length} categories identified`);
 
-    // Stage B: Generate enrichment fields based on analysis (gpt-4o-mini)
+    // Stage B: Generate enrichment fields based on analysis (gpt-4o)
     console.log(`[Schema] Stage B: Generating enrichment fields...`);
     const { fields: suggestedFields, tokensUsed: schemaTokens } = await generateSchemaSuggestion(
       headers, sampleRows, uniqueCategories, apiKey, catalogContext, catalogAnalysis
     );
 
-    await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed: schemaTokens || 10, model: 'gpt-4o-mini', purpose: 'schema_generation' });
+    await consumeBudget({ orgId, jobId: uploadJobId, tokensUsed: schemaTokens || 10, model: 'gpt-4o', purpose: 'schema_generation' });
 
     // 4. Save Schema
     await withTenant(orgId, async (tx) => {

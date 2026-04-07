@@ -28,6 +28,7 @@ function isMockApiKey(apiKey: string): boolean {
 }
 
 export interface CatalogAnalysis {
+  merchantNiche?: string;
   categories: { name: string; attributes: string[]; exampleProducts: string[] }[];
   totalTokensUsed: number;
 }
@@ -40,7 +41,8 @@ export interface CatalogAnalysis {
 export async function analyseProductCatalog(
   sampleRows: any[],
   apiKey: string,
-  catalogContext?: string
+  catalogContext?: string,
+  allProductNames?: string[]
 ): Promise<CatalogAnalysis> {
   if (isMockApiKey(apiKey) || sampleRows.length === 0) {
     return { categories: [], totalTokensUsed: 0 };
@@ -58,18 +60,27 @@ export async function analyseProductCatalog(
     ? `\nMERCHANT-PROVIDED DOMAIN CONTEXT:\n${sanitizePromptInput(catalogContext, 4000)}\n`
     : '';
 
+  // Include ALL product names so AI can see the full catalog scope
+  const namesBlock = allProductNames && allProductNames.length > 0
+    ? `\nALL PRODUCT NAMES IN CATALOG (${allProductNames.length} products — use this to understand the FULL scope and niche of the store):\n${allProductNames.map((n, i) => `${i + 1}. ${sanitizePromptInput(n, 200)}`).join('\n')}\n`
+    : '';
+
   const prompt = `You are a senior product catalog analyst. Study the sample products below and identify ALL distinct product categories or niches present in this catalog.
-${contextLine}
-SAMPLE PRODUCTS:
+
+IMPORTANT: Pay special attention to product names — they often encode critical information like dimensions, materials, compatibility with other products, and product variants. Also identify the merchant's business niche/domain (e.g. "outdoor cooking equipment store", "electronics retailer", "vape shop").
+${contextLine}${namesBlock}
+DETAILED SAMPLE PRODUCTS:
 ${rowsBlock}
 
 YOUR TASK:
-1. Identify every distinct product category/niche represented in the data above
-2. For each category, list the key commercial and technical attributes that are specific to that niche (e.g. "puff_count" for disposable vapes, "volume_ml" for liquids, "screen_size" for electronics)
-3. Name 1-2 example products from the data that belong to each category
+1. Identify the merchant's overall business niche/domain
+2. Identify every distinct product category/niche represented in the data above
+3. For each category, list the key commercial and technical attributes that are SPECIFIC to that niche — focus on attributes that matter for this particular type of product (e.g. "max_temperature_celsius" for ovens, "tier_count" for multi-level racks, "compatible_models" for accessories, "capacity_liters" for cookware)
+4. Name 1-2 example products from the data that belong to each category
 
 Respond ONLY with valid JSON:
 {
+  "merchant_niche": "Brief description of the store's domain",
   "categories": [
     {
       "name": "Human-readable category name",
@@ -114,6 +125,7 @@ Respond ONLY with valid JSON:
       return { categories: [], totalTokensUsed: data.usage?.total_tokens || 0 };
     }
 
+    const merchantNiche = parsed.merchant_niche ? String(parsed.merchant_niche) : undefined;
     const cats = Array.isArray(parsed.categories) ? parsed.categories : [];
     const categories = cats.map((c: any) => ({
       name: String(c.name || ''),
@@ -121,8 +133,8 @@ Respond ONLY with valid JSON:
       exampleProducts: Array.isArray(c.example_products) ? c.example_products.map(String) : [],
     })).filter((c: any) => c.name);
 
-    console.log(`[AI] analyseProductCatalog: found ${categories.length} categories`);
-    return { categories, totalTokensUsed: data.usage?.total_tokens || 0 };
+    console.log(`[AI] analyseProductCatalog: niche="${merchantNiche}", found ${categories.length} categories`);
+    return { merchantNiche, categories, totalTokensUsed: data.usage?.total_tokens || 0 };
   } catch (err) {
     console.warn('[AI] analyseProductCatalog failed, schema generation will proceed without analysis:', err);
     return { categories: [], totalTokensUsed: 0 };
@@ -167,14 +179,22 @@ export async function generateSchemaSuggestion(
   // breakdown of categories and their key attributes, leading to better field proposals.
   let analysisBlock = '';
   if (catalogAnalysis && catalogAnalysis.categories.length > 0) {
+    const nicheInfo = catalogAnalysis.merchantNiche
+      ? `\nMERCHANT NICHE (identified by catalog analysis): ${catalogAnalysis.merchantNiche}\n`
+      : '';
     const catLines = catalogAnalysis.categories.map(c =>
       `• ${c.name}\n  Key attributes: ${c.attributes.join(', ')}\n  Examples: ${c.exampleProducts.join(', ')}`
     ).join('\n');
-    analysisBlock = `\nPRE-ANALYSED CATALOG STRUCTURE (from Stage A analysis — use this to ensure coverage of ALL niches):\n${catLines}\n`;
+    analysisBlock = `${nicheInfo}\nPRE-ANALYSED CATALOG STRUCTURE (from Stage A analysis — use this to ensure coverage of ALL niches):\n${catLines}\n`;
   }
 
+  // If user didn't provide context but Stage A identified the niche, use it
+  const effectiveContextBlock = contextBlock || (catalogAnalysis?.merchantNiche
+    ? `\nCATALOG DOMAIN CONTEXT (auto-detected):\nThis is a ${catalogAnalysis.merchantNiche}.\n`
+    : '');
+
   const prompt = `You are a senior E-commerce catalog specialist. Propose enrichment fields based on a thorough catalog analysis.
-${contextBlock}${analysisBlock}
+${effectiveContextBlock}${analysisBlock}
 EXISTING CSV COLUMNS (already present — do NOT suggest these):
 ${existingColumns}
 ${categoriesBlock}
@@ -185,20 +205,24 @@ ${sampleBlock}
 YOUR TASK:
 Based on the catalog analysis and sample data above, propose enrichment fields that cover ALL identified product categories.
 
+CRITICAL REQUIREMENT — NICHE SPECIFICITY:
+You MUST prioritize niche-specific fields over generic ones. At least 60% of proposed fields should be specific to the merchant's domain.
+For example: for a tandoor/outdoor cooking store, suggest "max_temperature_celsius", "diameter_cm", "tier_count", "compatible_tandoor_models", "capacity_liters" — NOT generic fields like "color" or "brand" unless they are truly relevant.
+Product names often encode dimensions, materials, and compatibility info — extract these as dedicated fields.
+
 REQUIREMENTS:
 1. Propose 12-25 fields total:
-   - UNIVERSAL fields applicable to all products (brand, product_type, etc.)
-   - CATEGORY-SPECIFIC fields for each niche identified in the analysis — include the field's "description" to note which categories it applies to
+   - 3-5 UNIVERSAL fields applicable to all products (brand, product_type, material)
+   - 8-20 CATEGORY-SPECIFIC fields for each niche identified in the analysis — include the field's "description" to note which categories it applies to
 2. Every field must be reliably extractable or inferable from product names and descriptions using AI
 3. Every field must add real e-commerce value: filtering, search, logistics, compliance, or recommendations
 4. If two categories share a similar concept (e.g. "volume" for liquids and "capacity" for tanks), DEDUPLICATE into a single field with a clear description covering both uses
-5. Suggest fields specific to what you see in the data — do NOT use generic fallbacks
 
 THINK IN THESE DIMENSIONS:
-- Physical: brand, color, material, dimensions, weight
-- Technical: category-specific specs drawn from the analysis above
-- Commercial: age_restriction, product_type, target use, certifications
-- Catalog: product_line, compatibility, pack_quantity, country_of_origin
+- Physical: material, dimensions (diameter, height, width), weight, capacity/volume
+- Technical: category-specific specs drawn from the analysis above (temperature, tiers, compatibility)
+- Commercial: product_type, target use, intended_food_type, certifications
+- Catalog: product_line, compatible_models, size_variant, country_of_origin
 
 Respond with a JSON object containing a "fields" array. Each field must include "name" (snake_case), "label", "field_type" (one of: text, number, boolean, enum, url), "description", and "allowed_values" (array of strings for enum fields, empty array [] otherwise).`;
 
@@ -209,10 +233,10 @@ Respond with a JSON object containing a "fields" array. Each field must include 
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'openai/gpt-4o-mini',
+      model: 'openai/gpt-4o',
       temperature: 0.2,
       messages: [
-        { role: 'system', content: 'You are a product data enrichment expert.' },
+        { role: 'system', content: 'You are a product data enrichment expert specializing in niche e-commerce catalogs.' },
         { role: 'user', content: prompt }
       ],
       response_format: { type: 'json_schema', json_schema: SCHEMA_SUGGESTION_RESPONSE_SCHEMA }
