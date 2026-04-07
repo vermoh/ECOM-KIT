@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { db, projects, eq, and, withTenant, uploadJobs, inArray } from '@ecom-kit/shared-db';
+import { db, projects, eq, and, withTenant, uploadJobs, inArray, schemaTemplates, schemaFields, reviewTasks, enrichmentRuns, enrichedItems, collisions, exportJobs, seoTasks, auditLogs } from '@ecom-kit/shared-db';
 import { hasPermission } from '@ecom-kit/shared-auth';
 
 export async function projectRoutes(fastify: FastifyInstance) {
@@ -100,8 +100,6 @@ export async function projectRoutes(fastify: FastifyInstance) {
     if (!hasPermission(session, 'project:create')) {
       return reply.status(403).send({ error: 'Forbidden: project:create required' });
     }
-
-    const { schemaTemplates, schemaFields, reviewTasks, enrichmentRuns, enrichedItems, collisions, exportJobs, seoTasks, auditLogs } = await import('@ecom-kit/shared-db');
 
     try {
       await withTenant(session.orgId, async (tx) => {
