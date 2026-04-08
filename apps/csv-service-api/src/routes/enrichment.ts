@@ -123,17 +123,20 @@ export async function enrichmentRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Upload job not found' });
     }
 
-    if (job.status !== 'schema_confirmed' && job.status !== 'enriching' && job.status !== 'enriched' && job.status !== 'needs_collision_review' && job.status !== 'ready') {
-      return reply.status(400).send({ error: `Job must have confirmed schema (current: ${job.status})` });
+    const allowedStatuses = ['schema_draft', 'schema_review', 'schema_confirmed', 'enriching', 'enriched', 'needs_collision_review', 'ready'];
+    if (!allowedStatuses.includes(job.status)) {
+      return reply.status(400).send({ error: `Job must have a schema (current: ${job.status})` });
     }
 
+    // For preview, accept any schema (draft or confirmed)
     const template = await db.query.schemaTemplates.findFirst({
-      where: and(eq(schemaTemplates.jobId, id), eq(schemaTemplates.orgId, session.orgId), eq(schemaTemplates.status, 'confirmed')),
-      with: { fields: true }
+      where: and(eq(schemaTemplates.jobId, id), eq(schemaTemplates.orgId, session.orgId)),
+      with: { fields: true },
+      orderBy: (t, { desc }) => [desc(t.createdAt)]
     });
 
-    if (!template) {
-      return reply.status(400).send({ error: 'No confirmed schema template found' });
+    if (!template || !template.fields?.length) {
+      return reply.status(400).send({ error: 'No schema template with fields found for this job' });
     }
 
     // Issue AccessGrant for the worker

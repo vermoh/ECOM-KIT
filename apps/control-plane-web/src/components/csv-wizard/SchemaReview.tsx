@@ -37,6 +37,7 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewResults, setPreviewResults] = useState<any[] | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   React.useEffect(() => {
     let timeoutId: NodeJS.Timeout;
@@ -178,6 +179,7 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
     if (!accessToken || isPreviewing) return;
     setIsPreviewing(true);
     setPreviewResults(null);
+    setPreviewError(null);
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/uploads/${uploadJobId}/enrichment/preview`, {
         method: 'POST',
@@ -193,9 +195,11 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
         setPreviewOpen(true);
       } else {
         const err = await res.json().catch(() => ({}));
+        setPreviewError(err.message || err.error || `Preview failed (${res.status})`);
         console.error('Preview failed:', err);
       }
-    } catch (err) {
+    } catch (err: any) {
+      setPreviewError(err.message || 'Preview request failed');
       console.error('Preview request failed:', err);
     } finally {
       setIsPreviewing(false);
@@ -589,6 +593,11 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
             {isPreviewing ? t('previewing') : t('previewButton')}
           </Button>
         </div>
+        {previewError && (
+          <div className="border-t px-3 py-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
+            {previewError}
+          </div>
+        )}
         {previewOpen && previewResults && previewResults.length > 0 && (
           <div className="border-t px-3 pb-3 space-y-2 max-h-[400px] overflow-y-auto">
             {previewResults.map((item: any, idx: number) => (
