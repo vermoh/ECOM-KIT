@@ -15,6 +15,7 @@ const defaultJobOptions = {
 
 export const CSV_PARSING_QUEUE = 'csv-parsing';
 export const ENRICHMENT_QUEUE = 'enrichment';
+export const ENRICHMENT_PREVIEW_QUEUE = 'enrichment-preview';
 export const EXPORT_QUEUE = 'export';
 
 export const csvParsingQueue = new Queue(CSV_PARSING_QUEUE, {
@@ -27,6 +28,15 @@ export const enrichmentQueue = new Queue(ENRICHMENT_QUEUE, {
   defaultJobOptions: {
     ...defaultJobOptions,
     backoff: { type: 'exponential' as const, delay: 10000 }, // longer for AI jobs
+  },
+});
+
+export const enrichmentPreviewQueue = new Queue(ENRICHMENT_PREVIEW_QUEUE, {
+  connection: redisConnection as any,
+  defaultJobOptions: {
+    attempts: 1,
+    removeOnComplete: { count: 50 },
+    removeOnFail: { count: 50 },
   },
 });
 

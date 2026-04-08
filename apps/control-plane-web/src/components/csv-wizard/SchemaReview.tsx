@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { Textarea } from '@/components/ui/textarea';
-import { Check, ChevronDown, ChevronRight, Edit2, Globe, Info, Languages, Lightbulb, Plus, ShieldAlert, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Edit2, Eye, Globe, Info, Languages, Lightbulb, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
@@ -34,6 +34,9 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
   const [languages, setLanguages] = useState<{id: string, code: string, name: string, nativeName: string}[]>([]);
   const [currentLang, setCurrentLang] = useState<string>('');
   const [isTranslating, setIsTranslating] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewResults, setPreviewResults] = useState<any[] | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   React.useEffect(() => {
     let timeoutId: NodeJS.Timeout;
@@ -59,9 +62,13 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
               label: f.label || f.name,
               type: f.fieldType,
               required: f.isRequired,
+              isFilterable: f.isFilterable ?? false,
               allowedValues: f.allowedValues || [],
               description: f.description || '',
-              extractionHint: f.extractionHint || ''
+              extractionHint: f.extractionHint || '',
+              unit: f.unit || null,
+              confidence: f.confidence ?? null,
+              rationale: f.rationale || null,
             }))
           };
           setSchema(mappedSchema);
@@ -167,6 +174,34 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
     }
   };
 
+  const handlePreview = async () => {
+    if (!accessToken || isPreviewing) return;
+    setIsPreviewing(true);
+    setPreviewResults(null);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/uploads/${uploadJobId}/enrichment/preview`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ sampleCount: 5 })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPreviewResults(data.items || []);
+        setPreviewOpen(true);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error('Preview failed:', err);
+      }
+    } catch (err) {
+      console.error('Preview request failed:', err);
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
   const updateField = (fieldId: string, updates: Partial<SchemaField>) => {
     setSchema(prev => prev ? ({
       ...prev,
@@ -192,9 +227,13 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
         label: '',
         type: 'text' as any,
         required: true,
+        isFilterable: false,
         allowedValues: [],
         description: '',
-        extractionHint: ''
+        extractionHint: '',
+        unit: null,
+        confidence: null,
+        rationale: null,
       }]
     }) : null);
     setEditingField(newId);
@@ -217,12 +256,16 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
         body: JSON.stringify({
           fields: schema.fields.map(f => ({
             name: f.name,
-            label: (f as any).label || f.name,
+            label: f.label || f.name,
             fieldType: f.type,
             isRequired: f.required,
+            isFilterable: f.isFilterable ?? false,
             allowedValues: f.allowedValues,
             description: f.description,
-            extractionHint: f.extractionHint || undefined
+            extractionHint: f.extractionHint || undefined,
+            unit: f.unit || undefined,
+            confidence: f.confidence ?? undefined,
+            rationale: f.rationale || undefined,
           })),
           goldenSamples: goldenSamples.trim() ? goldenSamples.trim() : undefined
         })
@@ -375,12 +418,28 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                           </SelectContent>
                         </Select>
                       </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-medium text-muted-foreground uppercase">{t('unit')}</label>
+                        <Input
+                          value={field.unit || ''}
+                          onChange={(e) => updateField(field.id, { unit: e.target.value || null })}
+                          placeholder="kg, cm, ml..."
+                          className="h-8 text-sm w-[100px]"
+                        />
+                      </div>
                       <div className="flex items-center gap-2 pt-4">
                         <Switch
                           checked={field.required}
                           onCheckedChange={(checked) => updateField(field.id, { required: checked })}
                         />
                         <span className="text-xs text-muted-foreground">{t('required')}</span>
+                      </div>
+                      <div className="flex items-center gap-2 pt-4">
+                        <Switch
+                          checked={field.isFilterable}
+                          onCheckedChange={(checked) => updateField(field.id, { isFilterable: checked })}
+                        />
+                        <span className="text-xs text-muted-foreground">{t('filterable')}</span>
                       </div>
                       <div className="flex-1" />
                       <Button
@@ -418,11 +477,20 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                     />
                     <div className={`flex-1 min-w-0 ${!field.required ? 'opacity-50' : ''}`}>
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">{(field as any).label || field.name}</span>
+                        <span className="font-medium text-sm">{field.label || field.name}</span>
                         <span className="text-[10px] font-mono text-muted-foreground">{field.name}</span>
+                        {field.unit && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">{field.unit}</Badge>
+                        )}
+                        {field.isFilterable && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800">{t('filterable')}</Badge>
+                        )}
                       </div>
                       {field.description && (
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">{field.description}</p>
+                      )}
+                      {field.rationale && (
+                        <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5 truncate">{field.rationale}</p>
                       )}
                       {field.extractionHint && (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-1 truncate">
@@ -431,6 +499,18 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
                         </p>
                       )}
                     </div>
+                    {field.confidence != null && (
+                      <Badge
+                        variant="outline"
+                        className={`shrink-0 text-[10px] px-1.5 py-0 font-medium ${
+                          field.confidence >= 85 ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800' :
+                          field.confidence >= 65 ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800' :
+                          'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
+                        }`}
+                      >
+                        {field.confidence}%
+                      </Badge>
+                    )}
                     <Badge variant="secondary" className="font-normal capitalize shrink-0">{field.type}</Badge>
                     {field.type === 'enum' && field.allowedValues.length > 0 && (
                       <div className="flex flex-wrap gap-1 shrink-0 max-w-[200px]">
@@ -496,12 +576,64 @@ export function SchemaReview({ uploadJobId, onConfirmed }: SchemaReviewProps) {
         )}
       </div>
 
+      {/* Preview Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <div className="p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Eye className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">{t('previewTitle')}</span>
+            <span className="text-xs text-muted-foreground">{t('previewDescription')}</span>
+          </div>
+          <Button variant="outline" size="sm" onClick={handlePreview} disabled={isPreviewing}>
+            {isPreviewing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
+            {isPreviewing ? t('previewing') : t('previewButton')}
+          </Button>
+        </div>
+        {previewOpen && previewResults && previewResults.length > 0 && (
+          <div className="border-t px-3 pb-3 space-y-2 max-h-[400px] overflow-y-auto">
+            {previewResults.map((item: any, idx: number) => (
+              <div key={idx} className="bg-muted/30 rounded-md p-3 space-y-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-medium">Item {idx + 1}</span>
+                  {item.confidence != null && (
+                    <Badge variant="outline" className={`text-[10px] ${
+                      item.confidence >= 85 ? 'text-emerald-600 border-emerald-200' :
+                      item.confidence >= 65 ? 'text-amber-600 border-amber-200' :
+                      'text-red-600 border-red-200'
+                    }`}>
+                      {item.confidence}%
+                    </Badge>
+                  )}
+                  {item.error && (
+                    <Badge variant="outline" className="text-[10px] text-red-600 border-red-200">Error</Badge>
+                  )}
+                </div>
+                {item.enrichedData && Object.entries(item.enrichedData).map(([key, val]) => (
+                  <div key={key} className="flex items-center gap-2 text-xs">
+                    <span className="font-mono text-muted-foreground w-[140px] shrink-0 truncate">{key}</span>
+                    <span className="text-foreground">{String(val)}</span>
+                    {item.fieldConfidence?.[key] != null && (
+                      <span className={`text-[10px] ml-auto ${
+                        item.fieldConfidence[key] >= 85 ? 'text-emerald-500' :
+                        item.fieldConfidence[key] >= 65 ? 'text-amber-500' : 'text-red-500'
+                      }`}>
+                        {item.fieldConfidence[key]}%
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="bg-zinc-50 dark:bg-zinc-900 border rounded-lg p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <ShieldAlert className="h-5 w-5 text-amber-500" />
           <p className="text-sm font-medium">{t('requiresReviewerRole')}</p>
         </div>
-        
+
         <PermissionGate permission="schema:approve">
           <Button onClick={handleApprove} disabled={isApproving}>
             {isApproving ? t('confirming') : t('confirmSchemaStart')}

@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Collision } from '@/types/csv';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Check, X, AlertTriangle, Loader2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Check, X, AlertTriangle, Filter, Loader2 } from 'lucide-react';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { useAuth } from '@/context/AuthContext';
 
@@ -62,6 +63,9 @@ export function CollisionReview({ projectId, uploadJobId, onResolvedAll }: Colli
               productName,
               field: c.field,
               type: c.reason,
+              severity: c.severity || null,
+              explanation: c.explanation || null,
+              confidence: c.item?.confidence ?? null,
               valueA: c.originalValue || '',
               valueB: enrichedValue,
               suggestedValues,
@@ -126,34 +130,51 @@ export function CollisionReview({ projectId, uploadJobId, onResolvedAll }: Colli
   };
 
   const [acceptingAll, setAcceptingAll] = useState(false);
+  const [filterReason, setFilterReason] = useState<string>('all');
+  const [filterField, setFilterField] = useState<string>('all');
+  const [filterSeverity, setFilterSeverity] = useState<string>('all');
+
+  // Compute unique values for filters
+  const uniqueReasons = useMemo(() => [...new Set(items.map(i => i.type))], [items]);
+  const uniqueFields = useMemo(() => [...new Set(items.map(i => i.field))], [items]);
+  const uniqueSeverities = useMemo(() => [...new Set(items.map(i => i.severity).filter(Boolean))], [items]);
+
+  // Apply filters
+  const filteredItems = useMemo(() => {
+    return items.filter(i => {
+      if (filterReason !== 'all' && i.type !== filterReason) return false;
+      if (filterField !== 'all' && i.field !== filterField) return false;
+      if (filterSeverity !== 'all' && i.severity !== filterSeverity) return false;
+      return true;
+    });
+  }, [items, filterReason, filterField, filterSeverity]);
 
   const handleAcceptAllDefaults = async () => {
     const pending = items.filter(i => i.status === 'pending_review' || i.status === 'detected');
     if (pending.length === 0 || acceptingAll) return;
     setAcceptingAll(true);
     try {
-      for (const col of pending) {
-        const valueToUse = col.valueB || col.valueA;
-        if (valueToUse) {
-          await fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/collisions/${col.id}/resolve`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${accessToken}`
-            },
-            body: JSON.stringify({ resolvedValue: valueToUse })
-          });
-          setItems(prev => prev.map(c => c.id === col.id ? { ...c, status: 'resolved', resolvedValue: valueToUse } : c));
-        } else {
-          await fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/collisions/${col.id}/dismiss`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${accessToken}` }
-          });
-          setItems(prev => prev.map(c => c.id === col.id ? { ...c, status: 'ignored' } : c));
-        }
+      // Use batch resolve endpoint
+      const res = await fetch(`${process.env.NEXT_PUBLIC_CSV_API_URL || 'http://localhost:4001'}/uploads/${uploadJobId}/collisions/batch-resolve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ action: 'accept_ai' })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setItems(prev => prev.map(c => {
+          if (c.status === 'detected' || c.status === 'pending_review') {
+            return { ...c, status: 'resolved', resolvedValue: c.valueB || c.valueA };
+          }
+          return c;
+        }));
+        console.log(`[Batch Resolve] Resolved ${data.resolved} collisions`);
       }
     } catch (err) {
-      console.error('Failed to accept all defaults:', err);
+      console.error('Failed to batch resolve:', err);
     } finally {
       setAcceptingAll(false);
     }
@@ -209,8 +230,53 @@ export function CollisionReview({ projectId, uploadJobId, onResolvedAll }: Colli
         </PermissionGate>
       </div>
 
+      {/* Filters */}
+      {items.length > 3 && (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <Select value={filterReason} onValueChange={(v) => setFilterReason(v ?? 'all')}>
+            <SelectTrigger className="h-8 w-[160px]">
+              <SelectValue placeholder="All reasons" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All reasons</SelectItem>
+              {uniqueReasons.map(r => (
+                <SelectItem key={r} value={r}>{r.replace(/_/g, ' ')}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterField} onValueChange={(v) => setFilterField(v ?? 'all')}>
+            <SelectTrigger className="h-8 w-[160px]">
+              <SelectValue placeholder="All fields" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All fields</SelectItem>
+              {uniqueFields.map(f => (
+                <SelectItem key={f} value={f}>{f}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {uniqueSeverities.length > 0 && (
+            <Select value={filterSeverity} onValueChange={(v) => setFilterSeverity(v ?? 'all')}>
+              <SelectTrigger className="h-8 w-[140px]">
+                <SelectValue placeholder="All severities" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All severities</SelectItem>
+                {uniqueSeverities.map(s => (
+                  <SelectItem key={s!} value={s!}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <span className="text-xs text-muted-foreground ml-auto">
+            {filteredItems.length} of {items.length}
+          </span>
+        </div>
+      )}
+
       <div className="space-y-4">
-        {items.map((col) => {
+        {filteredItems.map((col) => {
           const isResolved = col.status === 'resolved' || col.status === 'dismissed';
           
           return (
@@ -230,10 +296,27 @@ export function CollisionReview({ projectId, uploadJobId, onResolvedAll }: Colli
                        <Badge variant="outline" className="capitalize text-amber-600 border-amber-200 text-[10px] shrink-0">
                          {col.type.replace(/_/g, ' ')}
                        </Badge>
+                       {col.severity && (
+                         <Badge variant="outline" className={`text-[10px] shrink-0 ${
+                           col.severity === 'critical' ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400' :
+                           col.severity === 'warning' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400' :
+                           'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400'
+                         }`}>
+                           {col.severity}
+                         </Badge>
+                       )}
+                       {col.confidence != null && (
+                         <Badge variant="outline" className="text-[10px] shrink-0 font-mono">
+                           {col.confidence}%
+                         </Badge>
+                       )}
                     </div>
                     <p className="text-sm">
                       <span className="text-muted-foreground">Field:</span> <span className="font-medium">{col.field}</span>
                     </p>
+                    {col.explanation && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{col.explanation}</p>
+                    )}
                   </div>
                   
                   {!isResolved ? (

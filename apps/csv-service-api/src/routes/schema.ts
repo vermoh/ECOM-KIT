@@ -100,9 +100,13 @@ export async function schemaRoutes(fastify: FastifyInstance) {
             label: field.label || field.name,
             fieldType: fieldType as any,
             isRequired: field.isRequired ?? false,
+            isFilterable: field.isFilterable ?? false,
             allowedValues: Array.isArray(field.allowedValues) ? field.allowedValues.filter(Boolean) : [],
             description: field.description || null,
             extractionHint: field.extractionHint || null,
+            unit: field.unit || null,
+            confidence: typeof field.confidence === 'number' ? field.confidence : null,
+            rationale: field.rationale || null,
             sortOrder: i,
           });
         }

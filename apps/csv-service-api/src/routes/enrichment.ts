@@ -1,9 +1,9 @@
 import { FastifyInstance } from 'fastify';
-import { db, uploadJobs, schemaTemplates, enrichmentRuns, seoTasks, withTenant, eq, and } from '@ecom-kit/shared-db';
+import { db, uploadJobs, schemaTemplates, schemaFields, enrichmentRuns, seoTasks, withTenant, eq, and } from '@ecom-kit/shared-db';
 import { hasPermission } from '@ecom-kit/shared-auth';
-import { enrichmentQueue } from '../lib/queue';
+import { enrichmentQueue, enrichmentPreviewQueue, ENRICHMENT_PREVIEW_QUEUE } from '../lib/queue';
 import IORedis from 'ioredis';
-import { Queue } from 'bullmq';
+import { Queue, QueueEvents } from 'bullmq';
 
 const CP_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:4000';
 const SERVICE_TOKEN = process.env.CSV_SERVICE_TOKEN || 'csv-service-shared-secret';
@@ -102,6 +102,85 @@ export async function enrichmentRoutes(fastify: FastifyInstance) {
       success: true, 
       enrichmentRunId: run.id 
     };
+  });
+
+  // Preview enrichment: enrich 5 sample rows without creating a run
+  fastify.post('/uploads/:id/enrichment/preview', async (request, reply) => {
+    const session = request.userSession!;
+    const { id } = request.params as { id: string };
+    const { sampleCount = 5 } = (request.body as { sampleCount?: number }) || {};
+
+    if (!hasPermission(session, 'enrichment:start')) {
+      return reply.status(403).send({ error: 'Forbidden: enrichment:start required' });
+    }
+
+    // Verify job exists and has confirmed schema
+    const job = await db.query.uploadJobs.findFirst({
+      where: and(eq(uploadJobs.id, id), eq(uploadJobs.orgId, session.orgId)),
+    });
+
+    if (!job) {
+      return reply.status(404).send({ error: 'Upload job not found' });
+    }
+
+    if (job.status !== 'schema_confirmed' && job.status !== 'enriching' && job.status !== 'enriched' && job.status !== 'needs_collision_review' && job.status !== 'ready') {
+      return reply.status(400).send({ error: `Job must have confirmed schema (current: ${job.status})` });
+    }
+
+    const template = await db.query.schemaTemplates.findFirst({
+      where: and(eq(schemaTemplates.jobId, id), eq(schemaTemplates.orgId, session.orgId), eq(schemaTemplates.status, 'confirmed')),
+      with: { fields: true }
+    });
+
+    if (!template) {
+      return reply.status(400).send({ error: 'No confirmed schema template found' });
+    }
+
+    // Issue AccessGrant for the worker
+    let accessGrantToken: string | undefined;
+    try {
+      const grantRes = await fetch(`${CP_URL}/api/v1/grants/issue-internal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SERVICE_TOKEN}`
+        },
+        body: JSON.stringify({
+          serviceSlug: 'csv-service-worker',
+          scopes: ['secret:read'],
+          orgId: session.orgId
+        })
+      });
+      if (grantRes.ok) {
+        const grantData = await grantRes.json() as any;
+        accessGrantToken = grantData.token;
+      }
+    } catch (err) {
+      console.error('[Preview] Failed to issue AccessGrant:', err);
+    }
+
+    // Enqueue preview job and wait for result
+    const previewJob = await enrichmentPreviewQueue.add('enrichment-preview', {
+      uploadJobId: id,
+      orgId: session.orgId,
+      s3Key: job.s3Key,
+      schemaId: template.id,
+      sampleCount: Math.min(Math.max(sampleCount, 1), 10),
+      accessGrantToken,
+    });
+
+    try {
+      const redisConn = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+        maxRetriesPerRequest: null,
+      });
+      const queueEvents = new QueueEvents(ENRICHMENT_PREVIEW_QUEUE, { connection: redisConn as any });
+      const result = await previewJob.waitUntilFinished(queueEvents, 60000); // 60s timeout
+      await queueEvents.close();
+      await redisConn.quit();
+      return result;
+    } catch (err: any) {
+      return reply.status(504).send({ error: 'Preview timed out or failed', details: err.message });
+    }
   });
 
   // Get enrichment run status

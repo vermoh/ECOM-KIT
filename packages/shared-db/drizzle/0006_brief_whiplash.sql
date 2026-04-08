@@ -1,0 +1,1 @@
+ALTER TABLE "enriched_items" ADD COLUMN "field_confidence" text;

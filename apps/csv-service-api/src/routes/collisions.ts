@@ -239,6 +239,112 @@ export async function collisionsRoutes(fastify: FastifyInstance) {
     return { success: true };
   });
 
+  // Batch resolve/dismiss collisions
+  fastify.post('/uploads/:uploadId/collisions/batch-resolve', async (request, reply) => {
+    const session = request.userSession!;
+    const { uploadId } = request.params as { uploadId: string };
+    const body = request.body as {
+      action: 'accept_ai' | 'keep_original' | 'dismiss';
+      filter?: { reason?: string; field?: string; minConfidence?: number };
+    };
+
+    if (!hasPermission(session, 'collision:resolve')) {
+      return reply.status(403).send({ error: 'Forbidden: collision:resolve required' });
+    }
+
+    const { action, filter } = body;
+    if (!['accept_ai', 'keep_original', 'dismiss'].includes(action)) {
+      return reply.status(400).send({ error: 'Invalid action. Must be: accept_ai, keep_original, or dismiss' });
+    }
+
+    // Find matching collisions
+    const allCollisions = await db.query.collisions.findMany({
+      where: and(
+        eq(collisions.jobId, uploadId),
+        eq(collisions.orgId, session.orgId),
+        or(eq(collisions.status, 'detected'), eq(collisions.status, 'pending_review'))
+      ),
+      with: { item: true }
+    });
+
+    // Apply filters
+    let filtered = allCollisions;
+    if (filter?.reason) {
+      filtered = filtered.filter(c => c.reason === filter.reason);
+    }
+    if (filter?.field) {
+      filtered = filtered.filter(c => c.field === filter.field);
+    }
+    if (filter?.minConfidence !== undefined && filter.minConfidence > 0) {
+      filtered = filtered.filter(c => {
+        if (!c.item?.confidence) return false;
+        return c.item.confidence >= filter.minConfidence!;
+      });
+    }
+
+    if (filtered.length === 0) {
+      return { success: true, resolved: 0, message: 'No matching collisions found' };
+    }
+
+    let resolvedCount = 0;
+
+    await withTenant(session.orgId, async (tx) => {
+      for (const collision of filtered) {
+        if (action === 'dismiss') {
+          await tx.update(collisions)
+            .set({ status: 'ignored', resolvedBy: session.userId, resolvedAt: new Date() })
+            .where(eq(collisions.id, collision.id));
+        } else if (action === 'accept_ai') {
+          // Accept the AI-suggested value (originalValue = AI's value in collision context)
+          await tx.update(collisions)
+            .set({ status: 'resolved', resolvedValue: collision.originalValue, resolvedBy: session.userId, resolvedAt: new Date() })
+            .where(eq(collisions.id, collision.id));
+        } else if (action === 'keep_original') {
+          // Keep the original — resolve without changing the enriched data
+          await tx.update(collisions)
+            .set({ status: 'resolved', resolvedValue: collision.originalValue, resolvedBy: session.userId, resolvedAt: new Date() })
+            .where(eq(collisions.id, collision.id));
+        }
+        resolvedCount++;
+      }
+
+      // Check if all collisions for this job are now resolved
+      const [remaining] = await tx.select({ value: count() })
+        .from(collisions)
+        .where(and(
+          eq(collisions.jobId, uploadId),
+          eq(collisions.orgId, session.orgId),
+          or(eq(collisions.status, 'detected'), eq(collisions.status, 'pending_review'))
+        ));
+
+      if (remaining.value === 0) {
+        await tx.update(reviewTasks)
+          .set({ status: 'completed', completedBy: session.userId, completedAt: new Date() })
+          .where(and(
+            eq(reviewTasks.jobId, uploadId),
+            eq(reviewTasks.taskType, 'collision_review'),
+            eq(reviewTasks.status, 'pending')
+          ));
+
+        await tx.update(uploadJobs)
+          .set({ status: 'ready', updatedAt: new Date() })
+          .where(and(eq(uploadJobs.id, uploadId), eq(uploadJobs.orgId, session.orgId)));
+      }
+
+      // Audit log
+      await tx.insert(auditLogs).values({
+        orgId: session.orgId,
+        userId: session.userId,
+        action: 'collisions.batch_resolved',
+        resourceType: 'upload_job',
+        resourceId: uploadId,
+        payload: JSON.stringify({ action, filter, resolvedCount }),
+      });
+    });
+
+    return { success: true, resolved: resolvedCount };
+  });
+
   // Knowledge base stats — most frequently corrected fields
   fastify.get('/knowledge/stats', async (request, reply) => {
     const session = request.userSession!;

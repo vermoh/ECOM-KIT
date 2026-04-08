@@ -34,9 +34,13 @@ export interface SchemaField {
   label?: string;
   type: SchemaFieldType;
   required: boolean;
+  isFilterable: boolean;
   allowedValues: string[];
   description?: string;
   extractionHint?: string;
+  unit?: string | null;
+  confidence?: number | null;
+  rationale?: string | null;
 }
 
 export interface SchemaTemplate {

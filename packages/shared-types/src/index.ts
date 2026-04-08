@@ -24,8 +24,12 @@ export interface SchemaField {
   label: string;
   fieldType: 'text' | 'number' | 'boolean' | 'enum' | 'url';
   isRequired: boolean;
+  isFilterable: boolean;
   allowedValues?: string[];
   description?: string;
+  unit?: string | null;
+  confidence?: number | null;
+  rationale?: string | null;
   sortOrder: number;
 }
 

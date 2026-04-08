@@ -44,6 +44,8 @@ export const organizations = pgTable('organizations', {
   deletedAt: timestamp('deleted_at'),
   billingCustomerId: text('billing_customer_id'),
   subscriptionId: text('subscription_id'),
+  confidenceThreshold: integer('confidence_threshold').default(80), // min confidence for "ok" items (default 80)
+  verificationThreshold: integer('verification_threshold').default(70), // below this triggers gpt-4o verification pass
 });
 
 export const users = pgTable('users', {
@@ -235,9 +237,13 @@ export const schemaFields = pgTable('schema_fields', {
   label: text('label').notNull(), // display name
   fieldType: schemaFieldTypeEnum('field_type').default('text').notNull(),
   isRequired: boolean('is_required').default(false).notNull(),
+  isFilterable: boolean('is_filterable').default(false).notNull(),
   allowedValues: text('allowed_values').array(),
   description: text('description'),
   extractionHint: text('extraction_hint'), // user-provided AI instruction for this field
+  unit: text('unit'), // measurement unit (e.g. "kg", "cm", "°C")
+  confidence: integer('confidence'), // AI confidence 0-100 for this field suggestion
+  rationale: text('rationale'), // AI explanation for why this field was suggested
   sortOrder: integer('sort_order').default(0).notNull(),
 });
 
@@ -278,7 +284,8 @@ export const enrichedItems = pgTable('enriched_items', {
   skuExternalId: text('sku_external_id').notNull(),
   rawData: text('raw_data'), // JSON string or text
   enrichedData: text('enriched_data'), // JSON string `{field_name: value}`
-  confidence: integer('confidence'), // 0-100
+  confidence: integer('confidence'), // 0-100 overall
+  fieldConfidence: text('field_confidence'), // JSON string `{field_name: 0-100}` per-field
   status: enrichedItemStatusEnum('status').default('ok').notNull(),
   reviewedBy: uuid('reviewed_by').references(() => users.id),
   reviewedAt: timestamp('reviewed_at'),
@@ -295,7 +302,9 @@ export const collisions = pgTable('collisions', {
   originalValue: text('original_value'), // value from AI
   suggestedValues: text('suggested_values'), // JSON array of alternative candidate values
   resolvedValue: text('resolved_value'), // value after human review
-  reason: text('reason').notNull(), // 'low_confidence', 'missing_required', 'invalid_format'
+  reason: text('reason').notNull(), // 'low_confidence', 'missing_required', 'invalid_format', 'enrichment_failed'
+  severity: text('severity'), // 'critical' | 'warning' | 'info' — AI-classified
+  explanation: text('explanation'), // AI-generated human-readable explanation
   status: collisionStatusEnum('status').default('detected').notNull(),
   resolvedBy: uuid('resolved_by').references(() => users.id),
   resolvedAt: timestamp('resolved_at'),

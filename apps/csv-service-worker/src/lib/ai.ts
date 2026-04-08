@@ -1,4 +1,26 @@
 import { SchemaField } from '@ecom-kit/shared-types';
+import { z } from 'zod';
+
+// ─── Zod schemas for AI response validation ───
+
+const CatalogAnalysisResponseSchema = z.object({
+  merchant_niche: z.string().optional(),
+  categories: z.array(z.object({
+    name: z.string(),
+    attributes: z.array(z.string()),
+    example_products: z.array(z.string()),
+  })).default([]),
+});
+
+const LanguageDetectionResponseSchema = z.string().min(2).max(5);
+
+const SeoResponseSchema = z.object({
+  seo_data: z.object({
+    seo_title: z.string().default(''),
+    seo_description: z.string().default(''),
+    seo_keywords: z.string().default(''),
+  }),
+});
 
 /** Patterns that look like prompt injection attempts */
 const INJECTION_PATTERNS = /^(IGNORE|SYSTEM:|You are|Forget|Disregard)/im;
@@ -70,6 +92,11 @@ export async function detectLanguage(sampleTexts: string[], apiKey: string): Pro
 
     const raw = (data.choices[0].message.content || '').trim().toLowerCase();
     const code = raw.slice(0, 2);
+    const validated = LanguageDetectionResponseSchema.safeParse(code);
+    if (!validated.success) {
+      console.warn(`[AI] detectLanguage: invalid response "${raw}", defaulting to en`);
+      return 'en';
+    }
     console.log(`[AI] detectLanguage: detected "${code}" from ${sampleTexts.length} sample texts`);
     return code || 'en';
   } catch (err) {
@@ -170,8 +197,15 @@ Respond ONLY with valid JSON:
       return { categories: [], totalTokensUsed: data.usage?.total_tokens || 0 };
     }
 
-    const merchantNiche = parsed.merchant_niche ? String(parsed.merchant_niche) : undefined;
-    const cats = Array.isArray(parsed.categories) ? parsed.categories : [];
+    const validated = CatalogAnalysisResponseSchema.safeParse(parsed);
+    if (!validated.success) {
+      console.warn('[AI] analyseProductCatalog: Zod validation failed:', validated.error.message);
+      // Fallback to manual parsing for backwards compatibility
+    }
+    const safeData = validated.success ? validated.data : parsed;
+
+    const merchantNiche = safeData.merchant_niche ? String(safeData.merchant_niche) : undefined;
+    const cats = Array.isArray(safeData.categories) ? safeData.categories : [];
     const categories = cats.map((c: any) => ({
       name: String(c.name || ''),
       attributes: Array.isArray(c.attributes) ? c.attributes.map(String) : [],
@@ -274,7 +308,16 @@ THINK IN THESE DIMENSIONS:
 - Commercial: product_type, target use, intended_food_type, certifications
 - Catalog: product_line, compatible_models, size_variant, country_of_origin
 
-Respond with a JSON object containing a "fields" array. Each field must include "name" (snake_case), "label", "field_type" (one of: text, number, boolean, enum, url), "description", and "allowed_values" (array of strings for enum fields, empty array [] otherwise).`;
+Respond with a JSON object containing a "fields" array. Each field must include:
+- "name" (snake_case key)
+- "label" (human-readable display name)
+- "field_type" (one of: text, number, boolean, enum, url)
+- "description" (what this field captures and which categories it applies to)
+- "allowed_values" (array of strings for enum fields, empty array [] otherwise)
+- "is_filterable" (boolean — true if this field is useful for catalog filtering/faceted search)
+- "unit" (string or null — measurement unit for dimensional fields, e.g. "kg", "cm", "ml", "°C". null for non-dimensional fields)
+- "confidence" (integer 0-100 — how confident you are that this field is relevant and extractable for this catalog)
+- "rationale" (brief explanation of why this field is valuable for this specific catalog)`;
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -426,8 +469,12 @@ const SCHEMA_SUGGESTION_RESPONSE_SCHEMA = {
             field_type: { type: 'string', enum: ['text', 'number', 'boolean', 'enum', 'url'] },
             description: { type: 'string', description: 'What this field captures and which categories it applies to' },
             allowed_values: { type: 'array', items: { type: 'string' }, description: 'Only for enum fields; empty array otherwise' },
+            is_filterable: { type: 'boolean', description: 'Whether this field is useful for catalog filtering/faceted search' },
+            unit: { type: ['string', 'null'], description: 'Measurement unit for dimensional fields (e.g. "kg", "cm", "ml"), null otherwise' },
+            confidence: { type: 'integer', description: 'AI confidence 0-100 that this field is relevant and extractable' },
+            rationale: { type: 'string', description: 'Brief explanation of why this field is valuable for this catalog' },
           },
-          required: ['name', 'label', 'field_type', 'description', 'allowed_values'],
+          required: ['name', 'label', 'field_type', 'description', 'allowed_values', 'is_filterable', 'unit', 'confidence', 'rationale'],
           additionalProperties: false,
         },
       },
@@ -460,6 +507,14 @@ function buildEnrichmentJsonSchema(schemaFields: any[]): any {
     }
   }
 
+  // Build field_confidence schema: same keys as enriched_data, but all integer values
+  const fieldConfidenceProps: any = {};
+  const fieldConfidenceRequired: string[] = [];
+  for (const f of schemaFields) {
+    fieldConfidenceProps[f.name] = { type: 'integer' };
+    fieldConfidenceRequired.push(f.name);
+  }
+
   return {
     name: 'enriched_product',
     strict: true,
@@ -474,6 +529,13 @@ function buildEnrichmentJsonSchema(schemaFields: any[]): any {
           additionalProperties: false,
         },
         confidence: { type: 'integer' },
+        field_confidence: {
+          type: 'object',
+          description: 'Per-field confidence scores (0-100)',
+          properties: fieldConfidenceProps,
+          required: fieldConfidenceRequired,
+          additionalProperties: false,
+        },
         uncertain_fields: {
           type: 'array',
           items: {
@@ -487,7 +549,7 @@ function buildEnrichmentJsonSchema(schemaFields: any[]): any {
           },
         },
       },
-      required: ['reasoning', 'enriched_data', 'confidence', 'uncertain_fields'],
+      required: ['reasoning', 'enriched_data', 'confidence', 'field_confidence', 'uncertain_fields'],
       additionalProperties: false,
     },
   };
@@ -598,7 +660,7 @@ export async function enrichItem(
   liveExamples?: any[],
   knowledgeBlock?: string,
   lang?: string
-): Promise<{ enrichedData: any; confidence: number; tokensUsed: number; uncertainFields: Record<string, string[]> }> {
+): Promise<{ enrichedData: any; confidence: number; fieldConfidence: Record<string, number>; tokensUsed: number; uncertainFields: Record<string, string[]> }> {
   const fieldNames = schemaFields.map(f => f.name);
   const schemaDescription = schemaFields.map(f => {
     let desc = `- "${f.name}" (${f.fieldType || 'text'}): ${f.description || f.label || f.name}`;
@@ -679,7 +741,10 @@ RULES:
 6. ${langInstruction}
 7. NEVER return null or omit a field. If genuinely unknown, return the most plausible default for this product type and niche.
 
-STEP 3 — For any field where you are LESS THAN 80% certain of the value, add an entry to "uncertain_fields" array with 2-3 plausible alternatives. This helps the human reviewer pick the best option. If you are confident in all values, return an empty array [].`;
+STEP 3 — CONFIDENCE ASSESSMENT:
+- In "field_confidence", provide a confidence score (0-100) for EACH field individually. Score based on: was the value explicitly stated (90-100), reasonably inferred (70-89), or guessed (below 70)?
+- The overall "confidence" is the weighted average of all field confidences.
+- For any field where you are LESS THAN 80% certain, add an entry to "uncertain_fields" array with 2-3 plausible alternatives. This helps the human reviewer pick the best option. If you are confident in all values, return an empty array [].`;
 
   const enrichmentSchema = buildEnrichmentJsonSchema(schemaFields);
 
@@ -717,9 +782,12 @@ STEP 3 — For any field where you are LESS THAN 80% certain of the value, add a
             mockEnriched[f.name] = f.fieldType === 'number' ? 100 : `[mock] ${f.label || f.name}`;
           }
         });
+        const mockFieldConf: Record<string, number> = {};
+        schemaFields.forEach(f => { mockFieldConf[f.name] = 95; });
         return {
           enrichedData: mockEnriched,
           confidence: 95,
+          fieldConfidence: mockFieldConf,
           tokensUsed: 150,
           uncertainFields: {}
         };
@@ -759,9 +827,21 @@ STEP 3 — For any field where you are LESS THAN 80% certain of the value, add a
       }
     }
 
+    // Parse per-field confidence scores
+    const fieldConfidence: Record<string, number> = {};
+    const rawFieldConf = parsed.field_confidence ?? parsed.fieldConfidence;
+    if (rawFieldConf && typeof rawFieldConf === 'object') {
+      for (const [k, v] of Object.entries(rawFieldConf)) {
+        if (typeof v === 'number') {
+          fieldConfidence[k] = v;
+        }
+      }
+    }
+
     return {
       enrichedData,
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 70,
+      fieldConfidence,
       tokensUsed: data.usage?.total_tokens || 0,
       uncertainFields
     };
@@ -1086,10 +1166,25 @@ export async function generateSeoAttributes(
     }
 
     const content = data.choices[0].message.content;
-    const parsed = JSON.parse(content);
-    
+    let parsed: any;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      throw new Error('AI_PARSE_ERROR: SEO response is not valid JSON');
+    }
+
+    const validated = SeoResponseSchema.safeParse(parsed);
+    if (!validated.success) {
+      console.warn('[AI] generateSeoAttributes: Zod validation failed:', validated.error.message);
+      // Fallback: use raw parsed data
+      return {
+        seoData: parsed.seo_data || {},
+        tokensUsed: data.usage?.total_tokens || 0
+      };
+    }
+
     return {
-      seoData: parsed.seo_data || {},
+      seoData: validated.data.seo_data,
       tokensUsed: data.usage?.total_tokens || 0
     };
   } catch (error) {
@@ -1097,3 +1192,116 @@ export async function generateSeoAttributes(
     throw error;
   }
 }
+
+/**
+ * Batch-classify collisions with AI to add severity and human-readable explanations.
+ * Groups collisions by reason+field to minimize API calls.
+ * Returns a map of collision IDs to { severity, explanation }.
+ */
+export async function classifyCollisionsBatch(
+  collisionGroups: { reason: string; field: string; sampleValues: string[]; count: number }[],
+  schemaFields: any[],
+  apiKey: string,
+  catalogContext?: string
+): Promise<{ classifications: { reason: string; field: string; severity: string; explanation: string }[] }> {
+  if (isMockApiKey(apiKey) || collisionGroups.length === 0) {
+    return {
+      classifications: collisionGroups.map(g => ({
+        reason: g.reason,
+        field: g.field,
+        severity: g.reason === 'missing_required' ? 'critical' : 'warning',
+        explanation: `${g.count} items have ${g.reason} for field "${g.field}"`,
+      }))
+    };
+  }
+
+  const fieldDescriptions = schemaFields.map(f =>
+    `- "${f.name}" (${f.fieldType || 'text'}): ${f.description || f.label || f.name}`
+  ).join('\n');
+
+  const groupsBlock = collisionGroups.map((g, i) =>
+    `${i + 1}. Field: "${g.field}", Reason: "${g.reason}", Count: ${g.count}, Sample values: ${g.sampleValues.slice(0, 3).join(', ')}`
+  ).join('\n');
+
+  const contextBlock = catalogContext
+    ? `\nCATALOG DOMAIN: ${sanitizePromptInput(catalogContext, 2000)}\n`
+    : '';
+
+  const prompt = `You are classifying data quality issues (collisions) found during AI product enrichment.
+${contextBlock}
+SCHEMA FIELDS:
+${fieldDescriptions}
+
+COLLISION GROUPS (each group = many items with the same issue):
+${groupsBlock}
+
+For each collision group, provide:
+1. "severity": "critical" (blocks export, data is wrong), "warning" (should review, data may be inaccurate), or "info" (minor, acceptable default used)
+2. "explanation": Brief human-readable explanation of what went wrong and what the reviewer should do (1-2 sentences, written for a non-technical e-commerce user)
+
+Return a JSON object with a "classifications" array matching the input order.`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: 'You are a data quality analyst for e-commerce catalogs.' },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_schema', json_schema: COLLISION_CLASSIFICATION_RESPONSE_SCHEMA }
+      })
+    });
+
+    const data = await response.json() as any;
+    if (!data.choices || data.choices.length === 0) {
+      throw new Error(`AI_API_ERROR: ${data.error?.message || 'No choices returned'}`);
+    }
+
+    const content = data.choices[0].message.content;
+    const parsed = JSON.parse(content);
+    return { classifications: parsed.classifications || [] };
+  } catch (err) {
+    console.warn('[AI] classifyCollisionsBatch failed, using defaults:', err);
+    return {
+      classifications: collisionGroups.map(g => ({
+        reason: g.reason,
+        field: g.field,
+        severity: g.reason === 'missing_required' ? 'critical' : 'warning',
+        explanation: `${g.count} items have ${g.reason} for field "${g.field}"`,
+      }))
+    };
+  }
+}
+
+const COLLISION_CLASSIFICATION_RESPONSE_SCHEMA = {
+  name: 'collision_classification',
+  strict: true,
+  schema: {
+    type: 'object',
+    properties: {
+      classifications: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            reason: { type: 'string' },
+            field: { type: 'string' },
+            severity: { type: 'string', enum: ['critical', 'warning', 'info'] },
+            explanation: { type: 'string' },
+          },
+          required: ['reason', 'field', 'severity', 'explanation'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['classifications'],
+    additionalProperties: false,
+  },
+};
