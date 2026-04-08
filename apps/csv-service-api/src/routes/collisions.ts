@@ -183,7 +183,7 @@ export async function collisionsRoutes(fastify: FastifyInstance) {
     await withTenant(session.orgId, async (tx) => {
       // Canonical model: dismiss → 'ignored' (not 'dismissed')
       await tx.update(collisions)
-        .set({ 
+        .set({
           status: 'ignored',
           resolvedBy: session.userId,
           resolvedAt: new Date()
@@ -192,6 +192,21 @@ export async function collisionsRoutes(fastify: FastifyInstance) {
           eq(collisions.id, id),
           eq(collisions.orgId, session.orgId)
         ));
+
+      // Remove the irrelevant field from enrichedData (set to null)
+      // This ensures dismissed fields don't appear in the final export
+      if (collision.field && collision.field !== '_row_') {
+        const item = await tx.query.enrichedItems.findFirst({
+          where: eq(enrichedItems.id, collision.enrichedItemId)
+        });
+        if (item) {
+          const enrichedData = JSON.parse(item.enrichedData || '{}');
+          delete enrichedData[collision.field];
+          await tx.update(enrichedItems)
+            .set({ enrichedData: JSON.stringify(enrichedData), updatedAt: new Date() })
+            .where(eq(enrichedItems.id, item.id));
+        }
+      }
 
       // Audit Log
       await tx.insert(auditLogs).values({

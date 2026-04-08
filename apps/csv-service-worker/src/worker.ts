@@ -675,19 +675,33 @@ export async function processEnrichmentJob(job: Job<EnrichmentJobData>) {
 
           const { data: enrichedData, enumViolations } = postProcessEnrichedData(rawEnriched, templateFields);
 
-          // Detect collisions
+          // Remove N/A fields (field_confidence === 0 means "not applicable to this product")
+          const naFields = new Set<string>();
+          for (const field of templateFields) {
+            const fc = fieldConfidence[field.name];
+            const val = enrichedData[field.name];
+            if (fc === 0 || (typeof val === 'string' && val.toUpperCase() === 'N/A')) {
+              delete enrichedData[field.name];
+              naFields.add(field.name);
+            }
+          }
+
+          // Detect collisions (skip N/A fields)
           const rowCollisions: { field: string; reason: string; value: string | null; suggestedValues?: string[] }[] = [];
 
           for (const field of templateFields) {
+            if (naFields.has(field.name)) continue; // field not applicable to this product
             if (field.isRequired && (enrichedData[field.name] === null || enrichedData[field.name] === undefined || enrichedData[field.name] === '')) {
               rowCollisions.push({ field: field.name, reason: 'missing_required', value: null, suggestedValues: uncertainFields[field.name] });
             }
           }
           for (const v of enumViolations) {
+            if (naFields.has(v.field)) continue;
             rowCollisions.push({ field: v.field, reason: 'invalid_enum_value', value: `"${v.value}" not in [${v.allowedValues.join(', ')}]`, suggestedValues: v.allowedValues });
           }
           // Low-confidence collisions: use per-field confidence when available, fall back to uncertain_fields
           for (const field of templateFields) {
+            if (naFields.has(field.name)) continue;
             if (rowCollisions.some(c => c.field === field.name)) continue;
             const fc = fieldConfidence[field.name];
             const alternatives = uncertainFields[field.name];

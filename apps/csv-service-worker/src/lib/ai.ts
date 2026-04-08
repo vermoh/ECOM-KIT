@@ -739,11 +739,16 @@ RULES:
 4. For number fields: return a number only (integer or float), no units in the value.
 5. For enum fields: return exactly one of the allowed values listed.
 6. ${langInstruction}
-7. NEVER return null or omit a field. If genuinely unknown, return the most plausible default for this product type and niche.
+7. CRITICAL — CATEGORY RELEVANCE: Some fields only apply to certain product categories. If a field is COMPLETELY IRRELEVANT to this product (e.g. "processor" for furniture, "fabric_type" for electronics), set its value to "N/A" and give it confidence 0. Do NOT invent fake values for irrelevant fields.
+8. For fields that ARE relevant but the value is unknown, return the most plausible default and give confidence 30-60.
 
 STEP 3 — CONFIDENCE ASSESSMENT:
-- In "field_confidence", provide a confidence score (0-100) for EACH field individually. Score based on: was the value explicitly stated (90-100), reasonably inferred (70-89), or guessed (below 70)?
-- The overall "confidence" is the weighted average of all field confidences.
+- In "field_confidence", provide a confidence score (0-100) for EACH field individually:
+  - 90-100: value explicitly stated in the product data
+  - 70-89: reasonably inferred from context
+  - 30-69: guessed / uncertain
+  - 0: field is NOT APPLICABLE to this product type (value should be "N/A")
+- The overall "confidence" is the weighted average of applicable field confidences (exclude N/A fields).
 - For any field where you are LESS THAN 80% certain, add an entry to "uncertain_fields" array with 2-3 plausible alternatives. This helps the human reviewer pick the best option. If you are confident in all values, return an empty array [].`;
 
   const enrichmentSchema = buildEnrichmentJsonSchema(schemaFields);
