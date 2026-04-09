@@ -277,7 +277,7 @@ export function CollisionReview({ projectId, uploadJobId, onResolvedAll }: Colli
 
       <div className="space-y-4">
         {filteredItems.map((col) => {
-          const isResolved = col.status === 'resolved' || col.status === 'dismissed';
+          const isResolved = col.status === 'resolved' || col.status === 'dismissed' || col.status === 'ignored';
           
           return (
             <Card key={col.id} className={isResolved ? "opacity-60 bg-muted/30" : "border-amber-200 dark:border-amber-900/50"}>
@@ -385,7 +385,7 @@ export function CollisionReview({ projectId, uploadJobId, onResolvedAll }: Colli
                     <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 px-4 py-2 rounded-lg">
                       <Check className="h-5 w-5" />
                       <span className="text-sm font-medium">
-                        {col.status === 'dismissed' ? 'Dismissed' : `Resolved to: ${col.resolvedValue}`}
+                        {col.status === 'dismissed' || col.status === 'ignored' ? 'Dismissed' : `Resolved to: ${col.resolvedValue}`}
                       </span>
                     </div>
                   )}

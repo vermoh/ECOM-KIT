@@ -1000,7 +1000,7 @@ Also provide a revised overall confidence score (60-100) reflecting the quality 
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-4o',
+        model: 'openai/gpt-4o-mini',
         temperature: 0.1,
         messages: [
           { role: 'system', content: 'You are a data quality reviewer. Review AI-generated product data and correct errors.' },
